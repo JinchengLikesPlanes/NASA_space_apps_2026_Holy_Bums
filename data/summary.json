@@ -1,0 +1,35 @@
+[
+ {
+  "id": "shackleton_ridge",
+  "name": "Shackleton connecting ridge",
+  "lat": -89.45,
+  "lon": 222.69,
+  "sun_pct": 77.6,
+  "earth_pct": 49.8,
+  "both_pct": 41.1,
+  "longest_dark_h": 260,
+  "longest_no_comm_h": 331
+ },
+ {
+  "id": "malapert",
+  "name": "Malapert massif",
+  "lat": -85.99,
+  "lon": 2.93,
+  "sun_pct": 43.6,
+  "earth_pct": 100.0,
+  "both_pct": 43.6,
+  "longest_dark_h": 444,
+  "longest_no_comm_h": 0
+ },
+ {
+  "id": "south_pole",
+  "name": "South pole (reference)",
+  "lat": -90.0,
+  "lon": 0.0,
+  "sun_pct": 25.0,
+  "earth_pct": 0.0,
+  "both_pct": 0.0,
+  "longest_dark_h": 704,
+  "longest_no_comm_h": 8761
+ }
+]
