@@ -134,6 +134,16 @@
 <div id="tags"></div>
 <div class="cursor" id="cursor" hidden></div>
 
+<script>
+  // Opened straight from disk: browsers block the app's scripts and data, so say what to do.
+  if (location.protocol === 'file:') {
+    var n = document.getElementById('notice');
+    n.innerHTML = 'This page only works through a local web server. In the project folder run <code>python -m http.server 8000</code> then open <code>http://localhost:8000/web/</code>';
+    n.hidden = false;
+    document.getElementById('layer-section').hidden = true;
+    document.getElementById('point-section').hidden = true;
+  }
+</script>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 <script type="module" src="./app.js"></script>
 </body>

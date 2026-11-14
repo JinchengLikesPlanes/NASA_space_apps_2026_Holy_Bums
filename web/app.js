@@ -376,15 +376,11 @@ async function start() {
     Math.sin(tilt) * Math.cos(turn), Math.cos(tilt), Math.sin(tilt) * Math.sin(turn)).multiplyScalar(0.42));
   buildGraticule();
 
-  if (location.protocol === 'file:') {
-    notice('This page has to be opened through a local web server to load its data. In the project folder run <code>python -m http.server 8000</code> then open <code>http://localhost:8000/web/</code>');
-  }
-
   try {
     map = await getJson('exposure_map.json');
   } catch {
     map = null;
-    if (location.protocol !== 'file:') {
+    {
       notice('No exposure map yet, so only the three sites are shown. To make it, run this in the <b>pipeline</b> folder, then reload: <code>python exposure_map.py path\\to\\LDEM_75S_120M.LBL</code>');
     }
     $('layer-section').hidden = true;
