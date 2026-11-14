@@ -63,12 +63,15 @@
   dd { margin: 0; text-align: right; }
   .where { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
   .hint { color: var(--ink-soft); }
+  #sites-note { font-size: 13px; margin-bottom: 8px; }
+  .actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+  dl + .hint { margin-top: 8px; font-size: 13px; }
 
   .sites { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .sites button { width: 100%; text-align: left; border-color: var(--rule); padding: 8px 10px; }
   .sites button:hover { background: rgba(26, 33, 64, 0.1); color: var(--ink); border-color: var(--ink); }
   .sites .name { font-weight: 600; display: block; }
-  .sites .nums { font-size: 13px; color: var(--ink-soft); }
+  .sites .nums { font-size: 13px; color: var(--ink-soft); display: block; }
 
   .notice { background: #fff6d6; border: 1px solid var(--sun); border-radius: 2px; padding: 10px 12px; }
   .notice code { display: block; margin: 6px 0; font-family: Consolas, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
@@ -121,12 +124,13 @@
   </section>
 
   <section id="point-section" aria-live="polite">
-    <h2>Point under the cursor</h2>
-    <div id="readout"><p class="hint">Move over the coloured map to read a spot. Drag to rotate, scroll to zoom.</p></div>
+    <h2 id="point-title">Point under the cursor</h2>
+    <div id="readout"><p class="hint">Move over the coloured map to read a spot, click to keep it selected. Drag to rotate, scroll to zoom.</p></div>
   </section>
 
   <section>
     <h2>Candidate sites</h2>
+    <p class="hint" id="sites-note" hidden></p>
     <ul class="sites" id="sites"></ul>
   </section>
 

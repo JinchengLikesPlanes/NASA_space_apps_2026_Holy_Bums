@@ -173,6 +173,7 @@ function shapeCap() {
   cap.geometry.computeBoundingSphere();
   paintCap();
   placeTags();
+  if (pinned !== null) hover = new THREE.Vector3().fromBufferAttribute(pos, pinned);
 }
 
 function paintCap() {
@@ -208,7 +209,7 @@ function showLegend() {
   const p = document.createElement('p');
   p.textContent = `${L.bestLabel}: ${L.text(values[bestK])}, at ${place(lat, lon)}.`;
   const go = Object.assign(document.createElement('button'), { textContent: 'Show this spot' });
-  go.addEventListener('click', () => { flyTo(lat, lon); showPoint(bestK); });
+  go.addEventListener('click', () => { flyTo(lat, lon); pin(bestK); });
   $('best').replaceChildren(p, go);
 }
 
@@ -240,19 +241,51 @@ function showPoint(k) {
   row('Longest night', days(map.longest_dark_h[k]));
   row('Height', `${map.height_m[k].toLocaleString('en')} m`);
   $('readout').replaceChildren(where, dl);
+  $('point-title').textContent = pinned === null ? 'Point under the cursor' : 'Selected point';
+  if (pinned === null) {
+    $('readout').append(Object.assign(document.createElement('p'), { className: 'hint', textContent: 'Click the map to keep a spot selected.' }));
+    return;
+  }
+  // The dashboard reads lat and lon from the address and runs its full analysis for that point.
+  const link = Object.assign(document.createElement('a'), {
+    href: `../?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`, textContent: 'Analyse this point in the dashboard' });
+  const release = Object.assign(document.createElement('button'), { textContent: 'Release' });
+  release.addEventListener('click', () => { pinned = null; hover = null; showPoint(k); });
+  const actions = Object.assign(document.createElement('p'), { className: 'actions' });
+  actions.append(link, release);
+  $('readout').append(actions);
 }
 
-function showSites(sites) {
+// Keep one grid cell selected: the readout and ring stay on it until released.
+function pin(k) {
+  pinned = k;
+  hover = new THREE.Vector3().fromBufferAttribute(cap.geometry.attributes.position, k);
+  showPoint(k);
+}
+
+// sites: rows of summary.json. zones: slope_summary.json rows or null. scores: scores.json or null.
+function showSites(sites, zones, scores) {
   const list = $('sites');
   list.replaceChildren();
+  const zone = Object.fromEntries((zones || []).map(z => [z.id, z]));
+  const score = Object.fromEntries(((scores && scores.sites) || []).map(r => [r.id, r.score]));
+  if (scores) {
+    sites = [...sites].sort((a, b) => (score[b.id] ?? -1) - (score[a.id] ?? -1));
+    const w = scores.weights;
+    $('sites-note').textContent = `Ranked by score out of 100. Weights are a starting guess: power ${w.power}, radio link ${w.comms}, flat ground ${w.safety}.`;
+    $('sites-note').hidden = false;
+  }
   for (const s of sites) {
     const b = document.createElement('button');
-    b.append(Object.assign(document.createElement('span'), { className: 'name', textContent: s.name }),
-      Object.assign(document.createElement('span'), {
-        className: 'nums',
-        textContent: `Sun ${s.sun_pct}%, Earth ${s.earth_pct}%, longest night ${days(s.longest_dark_h)}`,
-      }));
-    b.addEventListener('click', () => { flyTo(s.lat, s.lon); const k = cellAt(Math.max(s.lat, -89.999), s.lon); if (k >= 0) showPoint(k); });
+    const line = text => Object.assign(document.createElement('span'), { className: 'nums', textContent: text });
+    b.append(Object.assign(document.createElement('span'), { className: 'name',
+      textContent: score[s.id] != null ? `${s.name}: ${score[s.id]}` : s.name }));
+    b.append(line(`Sun ${s.sun_pct}%, Earth ${s.earth_pct}%, longest night ${days(s.longest_dark_h)}`));
+    const ground = [];
+    if (s.slope_deg != null) ground.push(`Slope at the site ${s.slope_deg}°`);
+    if (zone[s.id]) ground.push(`${zone[s.id].zone_safe_pct}% of the ${zone[s.id].zone_radius_m / 1000} km landing zone under ${zone[s.id].slope_limit_deg}°`);
+    if (ground.length) b.append(line(ground.join(', ')));
+    b.addEventListener('click', () => { flyTo(s.lat, s.lon); const k = cellAt(Math.max(s.lat, -89.999), s.lon); if (k >= 0) pin(k); });
     const li = document.createElement('li');
     li.append(b);
     list.append(li);
@@ -300,19 +333,22 @@ function stepFlight(now) {
 
 const ray = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
-let hover = null, pickQueued = false;
+let hover = null, pickQueued = false, pinned = null, pickToPin = false, downAt = null;
 
 function pick() {
   pickQueued = false;
-  if (!cap) return;
+  const wantPin = pickToPin;
+  pickToPin = false;
+  if (!cap || (pinned !== null && !wantPin)) return;
   ray.setFromCamera(pointer, camera);
   const hit = ray.intersectObject(cap)[0];
-  if (!hit) { hover = null; return; }
+  if (!hit) { if (pinned === null) hover = null; return; }
   // nearest of the triangle's three corners
   const corners = [hit.face.a, hit.face.b, hit.face.c];
   const p = new THREE.Vector3(), pos = cap.geometry.attributes.position;
   let k = corners[0], bestD = Infinity;
   for (const c of corners) { const d = p.fromBufferAttribute(pos, c).distanceToSquared(hit.point); if (d < bestD) { bestD = d; k = c; } }
+  if (wantPin) { pin(k); return; }
   hover = new THREE.Vector3().fromBufferAttribute(pos, k);
   showPoint(k);
 }
@@ -323,7 +359,12 @@ function onPointer(ev) {
   if (!pickQueued) { pickQueued = true; requestAnimationFrame(pick); }
 }
 canvas.addEventListener('pointermove', onPointer);
-canvas.addEventListener('pointerdown', onPointer);
+canvas.addEventListener('pointerdown', ev => { downAt = [ev.clientX, ev.clientY]; });
+canvas.addEventListener('pointerup', ev => {
+  // a click selects the spot; a drag (rotating the view) does not
+  if (downAt && Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) < 5) { pickToPin = true; onPointer(ev); }
+  downAt = null;
+});
 
 // ---------- frame loop ----------
 
@@ -392,7 +433,11 @@ async function start() {
     $('source').textContent = `Terrain from NASA's LOLA elevation grid. Sun and Earth positions from JPL Horizons, hourly from ${map.period[0]} to ${map.period[1]} UTC. Map points are ${map.spacing_km} km apart.`;
   }
 
-  try { showSites(await getJson('summary.json')); } catch { /* sites are optional */ }
+  try {
+    const optional = name => getJson(name).catch(() => null);       // made by slope_map.py and score_sites.py
+    const [sites, zones, scores] = await Promise.all([getJson('summary.json'), optional('slope_summary.json'), optional('scores.json')]);
+    showSites(sites, zones, scores);
+  } catch { /* sites are optional */ }
 
   for (const input of document.querySelectorAll('input[name=layer]')) {
     input.addEventListener('change', () => { layer = input.value; paintCap(); showLegend(); });
