@@ -17,8 +17,8 @@ OUT_DIR = pathlib.Path(__file__).resolve().parent.parent / "data"
 
 # id: (name, latitude deg, east longitude deg). APPROXIMATE - verify before the demo.
 SITES = {
-    "shackleton_ridge": ("Shackleton connecting ridge", -89.45, 222.69),
-    "malapert": ("Malapert massif", -85.99, 2.93),
+    "shackleton_ridge": ("Shackleton connecting ridge", -89.439, 222.856),
+    "malapert": ("Malapert massif", -85.9917, 2.7953),
     "south_pole": ("South pole (reference)", -90.0, 0.0),
 }
 START, STOP, STEP = "2027-01-01", "2028-01-01", "1h"
