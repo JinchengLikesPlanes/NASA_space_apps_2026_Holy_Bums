@@ -7,9 +7,9 @@ Needs:  ../data/malapert_ephemeris.json  (from fetch_ephemeris.py)
 Output: ../data/exposure_map.json, read by the web app in ../web
 
 For each point on a square grid centred on the pole it stores
-    sun_pct         share of the year the Sun is above the terrain
-    earth_pct       share of the year the Earth is above the terrain
-    longest_dark_h  longest unbroken stretch without the Sun, hours
+    sun_pct         average share of the Sun's disc above the terrain over the year
+    earth_pct       share of the year the Earth's centre is above the terrain
+    longest_dark_h  longest unbroken stretch with no part of the Sun showing, hours
     height_m        ground height above the 1737.4 km sphere
 
 Method
@@ -21,8 +21,11 @@ Method
    its direction shifts by up to 0.3 degrees across the map, so for the Earth we
    rebuild its position (using its average distance) and aim at that.
 2. Terrain. Same skyline calculation as horizon_profile.py, with coarser settings
-   (2 degree steps, 150 km reach) so thousands of points finish in minutes.
-3. A body is visible when its centre is above the skyline, as in compute_visibility.py.
+   (one grid only, 2 degree steps, 150 km reach) so thousands of points finish in
+   minutes. Expect small differences from the per-site numbers in summary.json,
+   which use the fine grid and 0.1 degree steps.
+3. Visibility. Same rules as compute_visibility.py: the Sun is a disc that can be
+   partly hidden, the Earth is judged by its centre.
 """
 import json
 import sys
@@ -31,7 +34,8 @@ import time
 import numpy as np
 
 import horizon_profile
-from fetch_ephemeris import SITES, OUT_DIR
+from compute_visibility import sun_fraction
+from fetch_ephemeris import OUT_DIR
 from horizon_profile import Dem, R, MAST_M
 
 REF_SITE = "malapert"       # the ephemeris file all sky positions are derived from
@@ -95,15 +99,13 @@ def longest_false_run(flags):
 def point_exposure(dem, sky, lat, lon):
     """Exposure numbers for one point. lat/lon in degrees."""
     lat = max(lat, -89.9999)                      # azimuth is undefined exactly at the pole
-    haz, hel, ground = horizon_profile.horizon(dem, lat, lon)
-    out = {"height_m": ground}
-    for body, (az, el) in (("sun", sky.sun(lat, lon)),
-                           ("earth", sky.earth(lat, lon, ground + MAST_M))):
-        visible = el > np.interp(az, haz, hel, period=360)
-        out[f"{body}_pct"] = 100 * visible.mean()
-        if body == "sun":
-            out["longest_dark_h"] = longest_false_run(visible)
-    return out
+    haz, hel, ground, _ = horizon_profile.horizon(dem, lat, lon)
+    az, el = sky.sun(lat, lon)
+    frac = sun_fraction(az, el, haz, hel)
+    az, el = sky.earth(lat, lon, ground + MAST_M)
+    earth = el > np.interp(az, haz, hel, period=360)
+    return {"height_m": ground, "sun_pct": 100 * frac.mean(), "earth_pct": 100 * earth.mean(),
+            "longest_dark_h": longest_false_run(frac > 0)}
 
 
 def grid_lat_lon(x_m, y_m):
