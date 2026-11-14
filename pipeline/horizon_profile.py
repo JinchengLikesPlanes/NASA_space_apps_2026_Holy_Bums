@@ -91,6 +91,12 @@ class Dem:
                           l0=self.meta["l0"] - r0, s0=self.meta["s0"] - c0)
         return small
 
+    def covers(self, lat, lon):
+        """True if the point lies inside this grid."""
+        row, col = self.rowcol(lat, lon)
+        return bool(np.isfinite(row) and np.isfinite(col)
+                    and 2 <= row < self.meta["lines"] - 2 and 2 <= col < self.meta["samples"] - 2)
+
     def rowcol(self, lat_deg, lon_deg):
         """Fractional (row, column) of a latitude/longitude in the grid."""
         m = self.meta
@@ -173,6 +179,27 @@ def horizon(dem, lat, lon, mast=MAST_M, fine=None):
     return az, out, h_obs - mast, site_dem
 
 
+def build(dem, fine, site_id, name, lat, lon):
+    """Everything saved in <site>_horizon.json for one site, as a dictionary.
+
+    A site outside the coarse grid has no terrain data, so it gets a smooth horizon:
+    the edge of a perfectly round Moon seen from mast height. It is labelled "smooth".
+    """
+    out = {"id": site_id, "name": name, "lat": lat, "lon": lon, "mast_m": MAST_M}
+    if not dem.covers(max(lat, -89.9999), lon):
+        az = np.arange(0, 360, AZ_STEP)
+        dip = -float(np.degrees(np.arccos(R / (R + MAST_M))))
+        out.update(terrain="smooth", ground_height_m=None, slope_deg=None,
+                   azimuth_deg=np.round(az, 2).tolist(), horizon_deg=[round(dip, 3)] * len(az))
+        return out
+    az, hz, ground, site_dem = horizon(dem, lat, lon, fine=fine)
+    slope = site_dem.slope(max(lat, -89.9999), lon)
+    out.update(terrain="lola", ground_height_m=round(ground, 1), slope_deg=round(slope, 1),
+               slope_baseline_m=2 * site_dem.meta["pix"], near_grid=site_dem.name, far_grid=dem.name,
+               azimuth_deg=np.round(az, 2).tolist(), horizon_deg=np.round(hz, 3).tolist())
+    return out
+
+
 def main():
     if len(sys.argv) not in (2, 3):
         sys.exit(__doc__)
@@ -185,17 +212,15 @@ def main():
     print("rays every", AZ_STEP, "deg")
     OUT_DIR.mkdir(exist_ok=True)
     for site_id, (name, lat, lon) in SITES.items():
-        az, hz, ground, site_dem = horizon(dem, lat, lon, fine=fine)
-        slope = site_dem.slope(max(lat, -89.9999), lon)
-        out = {"id": site_id, "name": name, "lat": lat, "lon": lon,
-               "ground_height_m": round(ground, 1), "mast_m": MAST_M,
-               "slope_deg": round(slope, 1), "slope_baseline_m": 2 * site_dem.meta["pix"],
-               "near_grid": site_dem.name, "far_grid": dem.name,
-               "azimuth_deg": np.round(az, 2).tolist(), "horizon_deg": np.round(hz, 3).tolist()}
+        out = build(dem, fine, site_id, name, lat, lon)
         (OUT_DIR / f"{site_id}_horizon.json").write_text(json.dumps(out))
-        note = "" if fine is None or site_dem is not dem else "  (outside the fine grid: coarse only)"
-        print(f"{site_id}: ground {ground:.0f} m, slope {slope:.1f} deg, "
-              f"horizon {hz.min():.2f} to {hz.max():.2f} deg{note}")
+        hz = out["horizon_deg"]
+        if out["terrain"] == "smooth":
+            print(f"{site_id}: outside the elevation grid, smooth horizon at {hz[0]:.2f} deg")
+        else:
+            note = "" if fine is None or out["near_grid"] != dem.name else "  (outside the fine grid: coarse only)"
+            print(f"{site_id}: ground {out['ground_height_m']:.0f} m, slope {out['slope_deg']:.1f} deg, "
+                  f"horizon {min(hz):.2f} to {max(hz):.2f} deg{note}")
 
 
 if __name__ == "__main__":

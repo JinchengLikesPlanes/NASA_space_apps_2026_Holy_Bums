@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lunar Landing Site Navigator</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f4f3ef; --surface: #fcfcfb; --line: #dedcd5; --grid: #e9e7e1;
+    --text: #0b0b0b; --text-2: #52514e; --text-3: #7b7974;
+    --sun: #eda100; --earth: #2a78d6; --both: #1baf7a; --terrain: #8a8880; --terrain-fill: #d9d7cf;
+    --accent: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page: #111110; --surface: #1a1a19; --line: #34332f; --grid: #2a2926;
+      --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8d85;
+      --sun: #c98500; --earth: #3987e5; --both: #199e70; --terrain: #8f8d85; --terrain-fill: #3a3935;
+      --accent: #3987e5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 20px 48px; }
+  h1 { font-size: 26px; margin: 0 0 4px; font-weight: 650; letter-spacing: -0.01em; }
+  h2 { font-size: 17px; margin: 0 0 2px; font-weight: 600; }
+  p.lead { margin: 0 0 20px; color: var(--text-2); max-width: 70ch; }
+  p.note { margin: 0 0 10px; color: var(--text-2); font-size: 14px; max-width: 80ch; }
+  section { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+            padding: 16px 18px; margin-bottom: 16px; }
+  .sites { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line);
+           border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: var(--text-3); }
+  button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600; }
+  .custom { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; padding-bottom: 14px;
+            border-bottom: 1px solid var(--line); }
+  .custom label { color: var(--text-2); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .custom input { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line);
+                  border-radius: 8px; padding: 5px 8px; width: 110px; }
+  .custom input#cName { width: 170px; }
+  #cStatus { color: var(--text-2); font-size: 13px; flex: 1 1 240px; }
+  .time { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .time input[type=range] { flex: 1 1 320px; accent-color: var(--accent); }
+  .time input[type=date] { font: inherit; color: var(--text); background: var(--surface);
+                           border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
+  #when { font-variant-numeric: tabular-nums; min-width: 190px; font-weight: 600; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .tile .k { color: var(--text-2); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .tile .v { font-size: 24px; font-weight: 650; margin: 2px 0; font-variant-numeric: tabular-nums; }
+  .tile .s { color: var(--text-2); font-size: 13px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .chart { width: 100%; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text-2); font-weight: 500; font-size: 13px; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover td { background: var(--page); }
+  tbody tr.sel td:first-child { font-weight: 650; box-shadow: inset 3px 0 0 var(--accent); }
+  td.best { font-weight: 650; }
+  td.best::after { content: " ★"; color: var(--text-3); font-weight: 400; }
+  .scroll { overflow-x: auto; }
+  #error { display: none; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid #e34948;
+           border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+  footer { color: var(--text-3); font-size: 13px; max-width: 90ch; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lunar Landing Site Navigator</h1>
+  <p class="lead">Pick a landing site and a date to see whether the Sun (power) and Earth (direct radio link)
+    are above the real terrain, how long until that changes, and how the sites compare.</p>
+
+  <div id="error"></div>
+
+  <section>
+    <div class="sites" id="sites" role="group" aria-label="Landing site"></div>
+    <form class="custom" id="custom">
+      <label>Your own point <input id="cName" placeholder="Name (optional)" maxlength="60"></label>
+      <label>Latitude <input id="cLat" type="number" step="any" min="-90" max="90" placeholder="-88.5" required></label>
+      <label>Longitude °E <input id="cLon" type="number" step="any" min="-360" max="360" placeholder="45" required></label>
+      <button type="submit" id="cGo">Analyse this point</button>
+      <span id="cStatus" role="status"></span>
+    </form>
+    <div class="time">
+      <button id="play" aria-label="Play or pause">▶ Play</button>
+      <button data-step="-24">−1 day</button><button data-step="-1">−1 h</button>
+      <button data-step="1">+1 h</button><button data-step="24">+1 day</button>
+      <input type="range" id="slider" min="0" max="1" value="0" aria-label="Time">
+      <input type="date" id="date" aria-label="Date">
+      <span id="when"></span>
+    </div>
+  </section>
+
+  <div class="tiles">
+    <div class="tile"><div class="k"><span class="dot" style="background:var(--sun)"></span>Sun (power)</div>
+      <div class="v" id="sunV"></div><div class="s" id="sunS"></div></div>
+    <div class="tile"><div class="k"><span class="dot" style="background:var(--earth)"></span>Earth (radio link)</div>
+      <div class="v" id="earthV"></div><div class="s" id="earthS"></div></div>
+    <div class="tile"><div class="k">Sun elevation</div>
+      <div class="v" id="elV"></div><div class="s" id="elS"></div></div>
+    <div class="tile"><div class="k">Solar power now</div>
+      <div class="v" id="pwV"></div><div class="s" id="pwS"></div></div>
+  </div>
+
+  <section>
+    <h2>The view from the site</h2>
+    <p class="note">The grey shape is the terrain skyline in every compass direction, measured by NASA's LOLA laser altimeter.
+      A filled circle is in view; a hollow circle is hidden behind terrain. Small dots show the path over the coming month.
+      On Earth the Sun climbs high overhead. Here it never rises more than a few degrees, so low hills decide everything.</p>
+    <p class="note" id="terrainNote" hidden><strong>No terrain data for this location.</strong> It lies outside the
+      south-polar elevation grid, so a smooth horizon is used. Away from the poles the Sun rises high, so terrain matters far less.</p>
+    <div id="pano" class="chart" style="height:380px"></div>
+  </section>
+
+  <section>
+    <h2>Power and communication windows across the year</h2>
+    <p class="note">Each bar is a stretch of time when the Sun is in view, Earth is in view, or both. Gaps are darkness or radio silence.
+      Click anywhere to jump to that date.</p>
+    <div id="timeline" class="chart" style="height:230px"></div>
+  </section>
+
+  <section>
+    <h2>Compare sites</h2>
+    <p class="note">Yearly figures for each site. A star marks the best value in each column. Click a row to open that site.</p>
+    <div class="scroll"><table id="table"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <footer>
+    Data: Sun and Earth positions from NASA JPL Horizons; terrain from the Lunar Orbiter Laser Altimeter (LOLA) on NASA's
+    Lunar Reconnaissance Orbiter. Limits: terrain at 20 m resolution near the site and 120 m beyond; observer 2 m above ground;
+    Earth judged by its centre; one year of hourly data. Power assumes a vertical Sun-tracking panel at 30% efficiency.
+  </footer>
+</main>
+
+<script>
+const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+const $ = id => document.getElementById(id);
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const state = { sites: [], cache: {}, id: null, i: 0, timer: null };
+
+async function getJSON(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(path + " (" + r.status + ")");
+  return r.json();
+}
+
+function parseTime(s) {           // "2027-Jan-01 00:00" -> milliseconds (UTC)
+  const m = s.match(/(\d{4})-(\w{3})-(\d{2}) (\d{2}):(\d{2})/);
+  return Date.UTC(+m[1], MONTHS[m[2]], +m[3], +m[4], +m[5]);
+}
+const fmtTime = ms => new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC";
+
+async function loadSite(id) {
+  if (!state.cache[id]) {
+    const [eph, hor, vis] = await Promise.all(
+      ["ephemeris", "horizon", "visibility"].map(k => getJSON(`data/${id}_${k}.json`)));
+    const t = eph.time_utc.map(parseTime);
+    const sunUp = vis.sun_fraction.map(f => f >= 0.5);
+    const earthUp = vis.earth_visible.map(v => v === 1);
+    state.cache[id] = { eph, hor, vis, t, sunUp, earthUp, both: sunUp.map((s, k) => s && earthUp[k]) };
+  }
+  return state.cache[id];
+}
+
+function hoursToChange(flags, i) {      // hours until the flag flips, or null if it never does
+  for (let k = i + 1; k < flags.length; k++) if (flags[k] !== flags[i]) return k - i;
+  return null;
+}
+function span(h) {
+  if (h === null) return "beyond the end of the data";
+  return h < 48 ? `${h} h` : `${(h / 24).toFixed(1)} days`;
+}
+function runs(flags, t) {               // stretches of consecutive true values -> [start, end] times
+  const out = []; let start = null;
+  flags.forEach((f, k) => {
+    if (f && start === null) start = k;
+    if ((!f || k === flags.length - 1) && start !== null) { out.push([t[start], t[f ? k : k - 1] + 3600e3]); start = null; }
+  });
+  return out;
+}
+
+function layoutBase() {
+  return { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+           font: { family: "system-ui, sans-serif", size: 13, color: css("--text-2") },
+           margin: { l: 56, r: 16, t: 10, b: 44 }, showlegend: false, dragmode: false,
+           hoverlabel: { bgcolor: css("--surface"), bordercolor: css("--line"), font: { color: css("--text") } } };
+}
+const axis = extra => Object.assign({ fixedrange: true, gridcolor: css("--grid"), linecolor: css("--line"), zeroline: false,
+                                       tickfont: { color: css("--text-2") } }, extra);
+
+function drawPanorama(d) {
+  const i = state.i, e = d.eph, surface = css("--surface");
+  const az = d.hor.azimuth_deg.concat([360]), hz = d.hor.horizon_deg.concat([d.hor.horizon_deg[0]]);
+  const lo = Math.min(...hz, ...e.sun_el, ...e.earth_el) - 0.5;
+  const hi = Math.max(...hz, ...e.sun_el, ...e.earth_el) + 1.6;
+  const next = n => Array.from({ length: Math.min(n, d.t.length - i) }, (_, k) => i + k);
+  const path = (body, n, color) => ({ x: next(n).map(k => e[body + "_az"][k]), y: next(n).map(k => e[body + "_el"][k]),
+    mode: "markers", marker: { size: 2.5, color, opacity: 0.55 }, hoverinfo: "skip" });
+  const body = (key, label, color, up, extra) => ({ x: [e[key + "_az"][i]], y: [e[key + "_el"][i]],
+    mode: "markers+text", text: [label + (up ? "" : " (hidden)")], cliponaxis: false,
+    textposition: e[key + "_az"][i] < 30 ? "top right" : e[key + "_az"][i] > 330 ? "top left" : "top center",
+    textfont: { color: css("--text"), size: 13 },
+    marker: { size: 16, color: up ? color : surface, line: { color: up ? surface : color, width: up ? 2 : 2.5 } },
+    hovertemplate: `${label}<br>direction %{x:.1f}°<br>elevation %{y:.2f}°${extra}<extra></extra>` });
+  const data = [
+    path("sun", 708, css("--sun")), path("earth", 655, css("--earth")),
+    { x: [0, 360], y: [lo, lo], mode: "lines", line: { width: 0 }, hoverinfo: "skip" },
+    { x: az, y: hz, mode: "lines", fill: "tonexty", fillcolor: css("--terrain-fill"),
+      line: { color: css("--terrain"), width: 1.5 }, hovertemplate: "terrain<br>direction %{x:.1f}°<br>height %{y:.2f}°<extra></extra>" },
+    body("sun", "Sun", css("--sun"), d.vis.sun_fraction[i] > 0, `<br>${Math.round(d.vis.sun_fraction[i] * 100)}% of disc in view`),
+    body("earth", "Earth", css("--earth"), d.earthUp[i], ""),
+  ];
+  const layout = Object.assign(layoutBase(), {
+    xaxis: axis({ range: [0, 360], tickvals: [0, 45, 90, 135, 180, 225, 270, 315, 360],
+                  ticktext: ["N", "NE", "E", "SE", "S", "SW", "W", "NW", "N"], title: { text: "Compass direction" } }),
+    yaxis: axis({ range: [lo, hi], ticksuffix: "°", title: { text: "Height above level" } }) });
+  Plotly.react("pano", data, layout, { displayModeBar: false, responsive: true });
+}
+
+function drawTimeline(d) {
+  const rows = [["Both", d.both, css("--both")], ["Earth in view", d.earthUp, css("--earth")], ["Sun in view", d.sunUp, css("--sun")]];
+  const data = rows.map(([name, flags, color]) => {
+    const r = runs(flags, d.t);
+    return { type: "bar", orientation: "h", y: r.map(() => name), base: r.map(x => new Date(x[0])),
+             x: r.map(x => x[1] - x[0]), marker: { color }, width: 0.55,
+             customdata: r.map(x => [fmtTime(x[0]), span(Math.round((x[1] - x[0]) / 3600e3))]),
+             hovertemplate: `${name}<br>from %{customdata[0]}<br>lasting %{customdata[1]}<extra></extra>` };
+  });
+  const now = new Date(d.t[state.i]);
+  const layout = Object.assign(layoutBase(), { barmode: "overlay", margin: { l: 110, r: 16, t: 10, b: 36 },
+    xaxis: axis({ type: "date", range: [new Date(d.t[0]), new Date(d.t[d.t.length - 1])] }),
+    yaxis: axis({ showgrid: false, tickfont: { color: css("--text"), size: 13 } }),
+    shapes: [{ type: "line", x0: now, x1: now, yref: "paper", y0: 0, y1: 1, line: { color: css("--text"), width: 1.5 } }] });
+  Plotly.react("timeline", data, layout, { displayModeBar: false, responsive: true });
+}
+
+function drawTiles(d) {
+  const i = state.i, f = d.vis.sun_fraction[i], sunOn = f > 0, el = d.eph.sun_el[i];
+  $("sunV").textContent = f >= 0.995 ? "In view" : sunOn ? `${Math.round(f * 100)}% in view` : "Hidden";
+  $("sunS").textContent = countdown(sunOn, hoursToChange(d.vis.sun_fraction.map(v => v > 0), i));
+  $("earthV").textContent = d.earthUp[i] ? "In view" : "Hidden";
+  $("earthS").textContent = countdown(d.earthUp[i], hoursToChange(d.earthUp, i));
+  $("elV").textContent = el.toFixed(2) + "°";
+  $("elS").textContent = "Terrain in that direction: " + terrainAt(d, d.eph.sun_az[i]).toFixed(2) + "°";
+  $("pwV").textContent = Math.round(d.vis.power_track_w_m2[i]) + " W/m²";
+  $("pwS").textContent = "Flat panel: " + d.vis.power_flat_w_m2[i].toFixed(1) + " W/m²";
+}
+const countdown = (up, h) => h === null ? "No change before the data ends" : (up ? "Sets in " : "Rises in ") + span(h);
+function terrainAt(d, az) {
+  const a = d.hor.azimuth_deg, step = a[1] - a[0];
+  return d.hor.horizon_deg[Math.round(((az % 360) + 360) % 360 / step) % a.length];
+}
+
+function drawTable() {
+  const cols = [["name", "Site", null], ["sun_pct", "Sunlight", "max", v => v.toFixed(1) + "%"], ["earth_pct", "Earth in view", "max", v => v.toFixed(1) + "%"],
+    ["both_pct", "Both", "max", v => v.toFixed(1) + "%"], ["longest_dark_h", "Longest dark", "min", v => span(v)],
+    ["longest_no_comm_h", "Longest radio gap", "min", v => span(v)], ["slope_deg", "Ground slope", "min", v => v.toFixed(1) + "°"],
+    ["avg_power_track_w_m2", "Avg power, tracking", "max", v => Math.round(v) + " W/m²"]].filter(c => c[0] === "name" || state.sites.some(s => s[c[0]] != null));
+  $("table").tHead.innerHTML = "<tr>" + cols.map(c => `<th scope="col">${c[1]}</th>`).join("") + "</tr>";
+  const best = {};
+  cols.forEach(([k, , mode]) => { if (mode) best[k] = Math[mode](...state.sites.map(s => s[k]).filter(v => v != null)); });
+  $("table").tBodies[0].innerHTML = state.sites.map(s => `<tr data-id="${s.id}" class="${s.id === state.id ? "sel" : ""}">` +
+    cols.map(([k, , mode, fmt]) => `<td class="${mode && state.sites.length > 1 && s[k] === best[k] ? "best" : ""}">${fmt ? (s[k] == null ? "–" : fmt(s[k])) : s[k]}</td>`).join("") + "</tr>").join("");
+}
+
+function drawTime(d) {
+  $("slider").max = d.t.length - 1; $("slider").value = state.i;
+  $("when").textContent = fmtTime(d.t[state.i]);
+  const iso = k => new Date(d.t[k]).toISOString().slice(0, 10);
+  $("date").min = iso(0); $("date").max = iso(d.t.length - 1); $("date").value = iso(state.i);
+}
+
+async function render(full) {
+  const d = await loadSite(state.id);
+  state.i = Math.max(0, Math.min(state.i, d.t.length - 1));
+  drawTime(d); drawTiles(d); drawPanorama(d);
+  if (full) { drawTimeline(d); drawTable();
+    $("terrainNote").hidden = (state.sites.find(s => s.id === state.id) || {}).terrain !== "smooth";
+    document.querySelectorAll("#sites button").forEach(b => b.setAttribute("aria-pressed", b.dataset.id === state.id)); }
+  else Plotly.relayout("timeline", { "shapes[0].x0": new Date(d.t[state.i]), "shapes[0].x1": new Date(d.t[state.i]) });
+}
+const setSite = id => { state.id = id; render(true).catch(showError); };
+const setIndex = i => { state.i = i; render(false).catch(showError); };
+
+function showError(err) {
+  $("error").style.display = "block";
+  $("error").innerHTML = `<strong>Could not load the data.</strong> ${err.message}<br>
+    Open this page through a local web server, not by double-clicking the file: in the repo folder run
+    <code>python -m http.server 8000</code> and visit <code>http://localhost:8000</code>.
+    The <code>data</code> folder must sit next to this file.`;
+}
+
+async function loadSummary() {
+  state.sites = await getJSON("data/summary.json");
+  $("sites").innerHTML = state.sites.map(s => `<button type="button" data-id="${s.id}" aria-pressed="false">${s.name}</button>`).join("");
+}
+
+async function addCustom(ev) {          // ask the local server to run the pipeline for a typed-in point
+  ev.preventDefault();
+  const q = new URLSearchParams({ lat: $("cLat").value, lon: $("cLon").value, name: $("cName").value });
+  $("cGo").disabled = true;
+  $("cStatus").textContent = "Calculating: downloading Sun and Earth positions and tracing the skyline. This takes up to a minute.";
+  try {
+    const r = await fetch("api/site?" + q);
+    const ok = (r.headers.get("content-type") || "").includes("json");
+    if (!ok) throw new Error("Custom points need the local server. Start the site with: python pipeline/server.py");
+    const row = await r.json();
+    if (!r.ok) throw new Error(row.error || "The calculation failed.");
+    await loadSummary();
+    $("cStatus").textContent = `Added ${row.name}.`;
+    setSite(row.id);
+  } catch (err) {
+    $("cStatus").textContent = err.message;
+  } finally { $("cGo").disabled = false; }
+}
+
+async function start() {
+  await loadSummary();
+  $("custom").onsubmit = addCustom;
+  $("sites").onclick = e => e.target.dataset.id && setSite(e.target.dataset.id);
+  $("table").tBodies[0].onclick = e => { const tr = e.target.closest("tr"); if (tr) setSite(tr.dataset.id); };
+  $("slider").oninput = e => setIndex(+e.target.value);
+  document.querySelectorAll("[data-step]").forEach(b => b.onclick = () => setIndex(state.i + +b.dataset.step));
+  $("date").onchange = e => { const d = state.cache[state.id], ms = Date.parse(e.target.value + "T00:00Z");
+    if (d && !isNaN(ms)) setIndex(Math.round((ms - d.t[0]) / 3600e3)); };
+  $("play").onclick = () => {
+    if (state.timer) { clearInterval(state.timer); state.timer = null; $("play").textContent = "▶ Play"; return; }
+    $("play").textContent = "❚❚ Pause";
+    state.timer = setInterval(() => { const n = state.cache[state.id].t.length; setIndex((state.i + 6) % n); }, 120);
+  };
+  state.id = state.sites[0].id;
+  await render(true);
+  $("timeline").addEventListener("click", ev => {       // click anywhere on the timeline to jump there
+    const d = state.cache[state.id], ax = $("timeline")._fullLayout.xaxis;
+    const px = ev.clientX - $("timeline").getBoundingClientRect().left - ax._offset;
+    if (px < 0 || px > ax._length) return;
+    const ms = d.t[0] + (px / ax._length) * (d.t[d.t.length - 1] - d.t[0]);
+    setIndex(Math.round((ms - d.t[0]) / 3600e3)); }, true);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => render(true));
+}
+start().catch(showError);
+</script>
+</body>
+</html>
