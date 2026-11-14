@@ -380,9 +380,7 @@ async function start() {
     map = await getJson('exposure_map.json');
   } catch {
     map = null;
-    {
-      notice('No exposure map yet, so only the three sites are shown. To make it, run this in the <b>pipeline</b> folder, then reload: <code>python exposure_map.py path\\to\\LDEM_75S_120M.LBL</code>');
-    }
+    notice('No exposure map yet, so only the three sites are shown. To make it, run this in the <b>pipeline</b> folder, then reload: <code>python exposure_map.py path\\to\\LDEM_75S_120M.LBL</code>');
     $('layer-section').hidden = true;
     $('point-section').hidden = true;
   }
