@@ -73,16 +73,20 @@ def main():
             assert stats["zone_safe_pct"] == safe, (tilt, stats)
             del dem
 
-        # 5. site_pixel lands on the same pixel that Dem.height reads
+        # 5. site_pixel picks the pixel nearest the site, in the place Dem.height reads
         h = np.zeros((N, N))
         for lat, lon in ((-89.45, 222.69), (-89.0, 2.93), (-88.8, 135.0)):
             dem = make_dem(tmp, h)
             row, col = site_pixel(dem, lat, lon)
+            exact_row, exact_col = dem.rowcol(lat, lon)
+            assert abs(exact_row - row) <= 0.5 and abs(exact_col - col) <= 0.5, (lat, lon)
+            centre_lat, centre_lon = dem.latlon(float(row), float(col))
             del dem
             spike = h.copy()
             spike[row, col] = 500.0
             dem = make_dem(tmp, spike)
-            assert dem.height(np.array([lat]), np.array([lon]))[0] == 500.0, (lat, lon)
+            got = dem.height(np.array([centre_lat]), np.array([centre_lon]))[0]
+            assert abs(got - 500.0) < 0.01, (lat, lon, got)
             del dem
     print("all slope checks passed")
 

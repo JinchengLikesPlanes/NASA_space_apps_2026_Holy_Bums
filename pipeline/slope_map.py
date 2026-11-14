@@ -29,13 +29,9 @@ MAP_HALF_M = 10e3         # half-width of the slope picture saved for each site
 
 
 def site_pixel(dem, lat, lon):
-    """(row, col) of the grid pixel containing a site. Same maths as Dem.height."""
-    m = dem.meta
-    r = 2 * R * np.tan(np.radians(90 + lat) / 2)      # south polar stereographic
-    lon = np.radians(lon)
-    row = int(np.rint(m["l0"] - r * np.cos(lon) / m["pix"]))
-    col = int(np.rint(m["s0"] + r * np.sin(lon) / m["pix"]))
-    return row, col
+    """(row, col) of the grid pixel nearest to a site."""
+    row, col = dem.rowcol(lat, lon)
+    return int(np.rint(row)), int(np.rint(col))
 
 
 def slope_window(dem, row, col, half_px):

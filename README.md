@@ -50,6 +50,10 @@ Kit) as `web/assets/moon.jpg` to give the globe a photo surface.
 3. `compute_visibility.py` sunlight, Earth visibility and panel power at each site
 4. `exposure_map.py` sunlight and Earth visibility for every point on a grid around the pole
 
-`refine_sites.py` suggests better coordinates for the sites (highest ground nearby).
+5. `slope_map.py` how steep the ground is across a 1 km landing zone around each site
+6. `score_sites.py` one ranked score per site from sunlight, Earth visibility and slope
 
-Needs Python with `numpy` and `requests`.
+`refine_sites.py` suggests better coordinates for the sites (highest ground nearby).
+`test_exposure_map.py` and `test_slope_map.py` check the maths and need no LOLA files.
+
+Needs Python with `numpy` and `requests` (and `matplotlib` for the slope pictures).
