@@ -11,9 +11,11 @@ sunlight and a clear view of Earth.
 
 ## Run the website
 
-There are two pages:
+There are three pages:
 
-- **Site dashboard** (`index.html`): pick a site and a date, see the skyline,
+- **Start page** (`index.html`): a short explanation of the project, with a button
+  that launches the 3D map.
+- **Site dashboard** (`dashboard.html`): pick a site and a date, see the skyline,
   the Sun and Earth, power, and a comparison table. Can analyse a typed-in point.
 - **3D map** (`web/`): the south polar terrain coloured by sunlight, Earth
   visibility or longest night, for every point on a grid. "Whole Moon" shows the
@@ -33,11 +35,11 @@ Add `--fine` to also get the 20 m grid (1.8 GB) for sharper skylines. Then:
 python pipeline/server.py
 ```
 
-Then open http://localhost:8000 for the dashboard and http://localhost:8000/web/
-for the 3D map.
+Then open http://localhost:8000 for the start page, which links to the 3D map
+(http://localhost:8000/web/) and the dashboard (http://localhost:8000/dashboard.html).
 
-Without the LOLA grids, `python -m http.server 8000` in the repo folder serves both
-pages. Points on the 3D map still open in the dashboard as a quick estimate worked
+Without the LOLA grids, `python -m http.server 8000` in the repo folder serves all
+three pages. Points on the 3D map still open in the dashboard as a quick estimate worked
 out in the browser (`web/estimate.js`); only the detailed analysis of a typed-in
 coordinate needs `server.py`.
 

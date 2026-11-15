@@ -4,7 +4,7 @@
 // and ../data/summary.json (from pipeline/compute_visibility.py), the candidate sites.
 import * as THREE from 'three';
 
-const BUILD = '2026-11-15e';       // shown at the bottom of the panel, to tell which copy of this file is running
+const BUILD = '2026-11-15f';       // shown at the bottom of the panel, to tell which copy of this file is running
 const DATA = '../data/';
 const HOURS_CAP = 720;            // "longest night" colours stop at 30 days
 
@@ -212,10 +212,14 @@ function shadeGlobe() {
   const dy = moonM * Math.PI / H;                                                         // metres between rows
   for (let j = 0; j < H; j++) {
     const lat = -90 + (j + 0.5) * 180 / H;
-    const dx = moonM * Math.max(Math.cos(lat * Math.PI / 180), 0.05) * 2 * Math.PI / W;   // metres between columns
+    const cosLat = Math.max(Math.cos(lat * Math.PI / 180), 0.01);
+    const dx = moonM * cosLat * 2 * Math.PI / W;                                          // metres between columns
+    // Near the poles the columns crowd together. Measure the east-west slope across enough of
+    // them to span about the same ground as one row, or the shading turns into streaks.
+    const span = Math.min(Math.max(Math.round(1 / cosLat), 1), W / 8);
     const up = Math.min(j + 1, H - 1) * W, down = Math.max(j - 1, 0) * W, row = j * W;
     for (let i = 0; i < W; i++) {
-      const zx = (h[row + (i + 1) % W] - h[row + (i + W - 1) % W]) / (2 * dx) * z;        // slope towards the east
+      const zx = (h[row + (i + span) % W] - h[row + (i + W - span) % W]) / (2 * span * dx) * z;   // slope towards the east
       const zy = (h[up + i] - h[down + i]) / (2 * dy) * z;                                // slope towards the north
       const facing = (0.5 * zx - 0.5 * zy + 0.7071) / (Math.sqrt(zx * zx + zy * zy + 1) * 0.7071);
       const light = 0.3 + 0.7 * Math.min(Math.max(facing, 0), 1.55);                      // 1 on flat ground
@@ -375,7 +379,7 @@ function cellAt(lat, lon) {
 // name, if given, is what the dashboard calls the point.
 function analyseLink(lat, lon, text, title, name = '') {
   const query = `lat=${lat}&lon=${lon}` + (name ? `&name=${encodeURIComponent(name)}` : '');
-  const a = Object.assign(document.createElement('a'), { href: `../?${query}`, textContent: text });
+  const a = Object.assign(document.createElement('a'), { href: `../dashboard.html?${query}`, textContent: text });
   a.addEventListener('click', ev => {             // ctrl/middle click still opens the full page in a new tab
     if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
     ev.preventDefault();
@@ -442,7 +446,7 @@ function openAnalysis(lat, lon, title, name = '') {
   const dialog = $('analysis'), frame = $('analysis-frame');
   $('analysis-title').textContent = title;
   const query = `lat=${lat}&lon=${lon}` + (name ? `&name=${encodeURIComponent(name)}` : '');
-  $('analysis-full').href = `../?${query}`;
+  $('analysis-full').href = `../dashboard.html?${query}`;
   if (!dialog.open) dialog.showModal();
   const inside = frame.contentWindow;
   if (frame.dataset.loaded && inside && typeof inside.openPoint === 'function') {
@@ -450,7 +454,7 @@ function openAnalysis(lat, lon, title, name = '') {
     inside.scrollTo(0, 0);
   } else {
     frame.addEventListener('load', () => { frame.dataset.loaded = '1'; }, { once: true });
-    frame.src = `../?${query}&embed=1`;
+    frame.src = `../dashboard.html?${query}&embed=1`;
   }
 }
 $('analysis-close').addEventListener('click', () => $('analysis').close());
