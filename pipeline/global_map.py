@@ -5,7 +5,7 @@ Usage:  python global_map.py path\\to\\LDEM_16.LBL [step_deg] [workers]
         python global_map.py
             without terrain: the Moon as a smooth ball. Needs no LOLA files.
         step_deg  distance between mapped points in degrees (default 0.5 with terrain, 2 without)
-        workers   how many processor cores to use (default: all but one)
+        workers   how many processor cores to use (default: all but one, at most 8)
 Needs:  ../data/malapert_ephemeris.json  (from fetch_ephemeris.py)
 Output: ../data/global_map.json     values on a longitude/latitude grid, read by the 3D page in ../web
         ../data/global_heights.bin  (with terrain) ground heights at 8 points per degree, which the
@@ -24,13 +24,21 @@ For each grid cell it stores
     longest_dark_h  longest unbroken stretch with no part of the Sun showing, hours
     height_m        (with terrain) ground height above the 1737.4 km sphere
 """
+import os
+
+# Each worker process below does its own sums on one core. Left alone, numpy's maths library
+# would start a full set of threads in every worker (cores x cores in total) and run the
+# computer out of memory. This has to be set before numpy is first imported.
+for _name in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    os.environ.setdefault(_name, "1")
+
 import json
 import multiprocessing
-import os
 import pathlib
 import re
 import sys
 import time
+import traceback
 
 import numpy as np
 
@@ -83,7 +91,8 @@ class GlobalDem:
         self.west = num("WESTERNMOST_LONGITUDE", 0.0)
         self.north = num("MAXIMUM_LATITUDE", 90.0)
         self.to_m = num("SCALING_FACTOR", 1.0) * (1000.0 if unit_km else 1.0)
-        self.grid = np.fromfile(img, dtype=dtype).reshape(lines, samples)
+        # read straight from the file as needed: worker processes then share one copy in memory
+        self.grid = np.memmap(img, dtype=dtype, mode="r", shape=(lines, samples))
         self.meta = {"pix": R * np.radians(1.0 / self.ppd), "lines": lines, "samples": samples}
 
     def height(self, lat_deg, lon_deg):
@@ -158,17 +167,24 @@ _w = {}
 
 def _start_worker(lbl, lons):
     """Runs once in each worker process: load the grid and the sky positions."""
-    _w["lons"] = lons
-    _w["sky"] = sky = load_sky()
-    _w["dem"] = None
-    if lbl:
-        horizon_profile.AZ_STEP = AZ_STEP          # coarser skyline settings than the per-site run
-        horizon_profile.MAX_DIST = MAX_DIST
-        _w["dem"] = GlobalDem(lbl)
-        sky.sun_dir, sky.earth_pos = sky.sun_dir[::HOURS], sky.earth_pos[::HOURS]
+    try:
+        _w["lons"] = lons
+        _w["sky"] = sky = load_sky()
+        _w["dem"] = None
+        if lbl:
+            horizon_profile.AZ_STEP = AZ_STEP          # coarser skyline settings than the per-site run
+            horizon_profile.MAX_DIST = MAX_DIST
+            _w["dem"] = GlobalDem(lbl)
+            sky.sun_dir, sky.earth_pos = sky.sun_dir[::HOURS], sky.earth_pos[::HOURS]
+    except BaseException:
+        # A worker that dies while starting is quietly replaced, for ever. Keep it alive and
+        # report the problem with its first piece of work, so the run stops with a clear message.
+        _w["failed"] = traceback.format_exc()
 
 
 def _row(lat):
+    if "failed" in _w:
+        raise RuntimeError("a worker process could not start:\n" + _w["failed"])
     if _w["dem"] is None:
         return [smooth_exposure(_w["sky"], lat, float(lon)) for lon in _w["lons"]]
     return [terrain_exposure(_w["dem"], _w["sky"], lat, float(lon), HOURS) for lon in _w["lons"]]
@@ -178,7 +194,7 @@ def main():
     args = sys.argv[1:]
     lbl = args.pop(0) if args and not re.fullmatch(r"[0-9.]+", args[0]) else None
     step = float(args[0]) if args else (0.5 if lbl else 2.0)
-    workers = int(args[1]) if len(args) > 1 else max((os.cpu_count() or 2) - 1, 1)
+    workers = int(args[1]) if len(args) > 1 else min(max((os.cpu_count() or 2) - 1, 1), 8)
 
     lats = np.arange(-90 + step / 2, 90, step)        # cell centres, south to north
     lons = np.arange(-180 + step / 2, 180, step)      # cell centres, west to east
@@ -195,7 +211,14 @@ def main():
     grids = {k: [] for k in keys}
     start = time.time()
     with multiprocessing.Pool(workers, _start_worker, (lbl, lons)) as pool:
-        for done, row in enumerate(pool.imap(_row, [float(v) for v in lats]), 1):
+        rows = pool.imap(_row, [float(v) for v in lats])
+        for done in range(1, len(lats) + 1):
+            try:
+                row = next(rows)
+            except Exception as exc:
+                pool.terminate()
+                sys.exit(f"\nStopped: {exc}\nNothing was written. If this is a memory error, try fewer cores, "
+                         f"for example:  python global_map.py {lbl or ''} {step:g} 4")
             for res in row:
                 grids["sun_pct"].append(round(res["sun_pct"], 1))
                 grids["earth_pct"].append(round(res["earth_pct"], 1))

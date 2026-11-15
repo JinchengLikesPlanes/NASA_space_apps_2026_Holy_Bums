@@ -62,7 +62,7 @@ python fetch_lola.py --global
 python global_map.py ..\..\lola\LDEM_16.LBL
 ```
 
-This uses all but one of your processor cores and takes roughly 5 to 15 minutes.
+This uses up to 8 processor cores and takes roughly 5 to 15 minutes.
 `python global_map.py` with no file makes a smooth-ball version in two minutes.
 
 If a page seems not to change after an update, the browser is running an old copy:
