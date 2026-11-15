@@ -84,6 +84,8 @@
   .view { position: fixed; top: 16px; right: 16px; display: flex; gap: 6px; align-items: stretch; }
   .view button { background: var(--paper); border-color: var(--paper); min-width: 36px; }
   .view button:hover { background: #fff; color: var(--ink); }
+  .view button[aria-pressed=true] { background: var(--ink); color: var(--paper); border-color: var(--paper); }
+  .view { flex-wrap: wrap; justify-content: flex-end; max-width: calc(100vw - 32px); }
   .view button:focus-visible { outline: 2px solid #fff; }
   .how { position: fixed; right: 16px; bottom: 14px; margin: 0; color: rgba(236, 231, 216, 0.75); font-size: 13px; pointer-events: none; text-align: right; }
   .tag {
@@ -125,6 +127,7 @@
   <button id="view-in" aria-label="Zoom in" title="Zoom in">+</button>
   <button id="view-out" aria-label="Zoom out" title="Zoom out">−</button>
   <button id="view-tilt">Look straight down</button>
+  <button id="view-flip" aria-pressed="false" title="Turn the picture half a turn: ground under you, or the Moon's north up">Upside-down view</button>
   <button id="view-reset">Reset view</button>
 </div>
 

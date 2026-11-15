@@ -76,25 +76,57 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true 
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, 0.005, 50);
-camera.up.set(0, -1, 0);       // we look at the south pole, so south is "up" for the camera and its controls
-const controls = new OrbitControls(camera, canvas);
 // The camera orbits a point on the surface (the south pole to begin with), so you
 // can tilt down towards the horizon and see the relief, not only look straight down.
 const SOUTH_POLE = new THREE.Vector3(0, -1, 0);
-controls.target.copy(SOUTH_POLE);
-controls.enableDamping = true;
-controls.zoomToCursor = true;
-controls.minDistance = 0.04;
-controls.maxDistance = 4;
-controls.minPolarAngle = THREE.MathUtils.degToRad(4);     // tilt is measured from straight above the pole:
-controls.maxPolarAngle = THREE.MathUtils.degToRad(83);    // from almost straight down to almost level with the ground
-// Works like a map: drag moves the ground, right-drag (or Ctrl/Shift + drag) turns and tilts,
-// the wheel zooms towards the cursor. One finger moves, two fingers zoom and turn.
-controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
-controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
-controls.screenSpacePanning = false;       // dragging slides along the ground, not up into space
-controls.keyPanSpeed = 30;
-controls.listenToKeyEvents(canvas);        // arrow keys move the view when the map has focus
+
+// Two ways up. Normally south is "up" for the camera, so the ground is under you like a map.
+// Flipped, the Moon's north is up, as on a globe: you look up at the pole from underneath
+// and the terrain hangs down. Same camera position, picture turned half a turn.
+let flipped = false;
+try { flipped = localStorage.getItem('view-flipped') === '1'; } catch { /* storage unavailable */ }
+
+// OrbitControls reads the camera's "up" once, when it is created, so flipping builds a new one.
+let controls = null;
+function makeControls() {
+  const pivot = controls ? controls.target.clone() : SOUTH_POLE.clone();
+  if (controls) controls.dispose();
+  camera.up.set(0, flipped ? 1 : -1, 0);
+  controls = new OrbitControls(camera, canvas);
+  controls.target.copy(pivot);
+  controls.enableDamping = true;
+  controls.zoomToCursor = true;
+  controls.minDistance = 0.04;
+  controls.maxDistance = 4;
+  // tilt runs from almost straight down on the pole to almost level with the ground;
+  // the controls measure it from their own "up", so the numbers swap when flipped
+  controls.minPolarAngle = THREE.MathUtils.degToRad(flipped ? 97 : 4);
+  controls.maxPolarAngle = THREE.MathUtils.degToRad(flipped ? 176 : 83);
+  // Works like a map: drag moves the ground, right-drag (or Ctrl/Shift + drag) turns and tilts,
+  // the wheel zooms towards the cursor. One finger moves, two fingers zoom and turn.
+  controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+  // Unflipped, a drag slides along the ground. Flipped, that would run backwards (the controls
+  // would take north as "up"), so the drag follows the screen and keepPivotOnGround puts the
+  // pivot back on the surface.
+  controls.screenSpacePanning = flipped;
+  controls.keyPanSpeed = 30;
+  controls.listenToKeyEvents(canvas);      // arrow keys move the view when the map has focus
+}
+makeControls();
+
+function flipView() {
+  flipped = !flipped;
+  try { localStorage.setItem('view-flipped', flipped ? '1' : '0'); } catch { /* storage unavailable */ }
+  flight = null;
+  makeControls();
+  showFlip();
+}
+function showFlip() {
+  $('view-flip').textContent = flipped ? 'Ground-down view' : 'Upside-down view';
+  $('view-flip').setAttribute('aria-pressed', String(flipped));
+}
+
 // In the helpers below a view is described from the Moon's north (+Y), so 180 degrees is straight down on the pole.
 const STRAIGHT_DOWN = THREE.MathUtils.degToRad(176), TILTED = THREE.MathUtils.degToRad(140);
 const HOME = { turn: THREE.MathUtils.degToRad(-60), distance: 0.42 };
@@ -527,6 +559,8 @@ async function start() {
   $('view-in').addEventListener('click', () => zoomBy(0.6));
   $('view-out').addEventListener('click', () => zoomBy(1 / 0.6));
   $('view-tilt').addEventListener('click', toggleTilt);
+  $('view-flip').addEventListener('click', flipView);
+  showFlip();
   canvas.addEventListener('keydown', ev => {      // with the map focused: + and - zoom, 0 or Home resets
     if (ev.key === '+' || ev.key === '=') zoomBy(0.6);
     else if (ev.key === '-' || ev.key === '_') zoomBy(1 / 0.6);
