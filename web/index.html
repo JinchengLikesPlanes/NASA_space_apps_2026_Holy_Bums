@@ -77,7 +77,8 @@
 
   .notice { background: #fff6d6; border: 1px solid var(--sun); border-radius: 2px; padding: 10px 12px; }
   .notice code { display: block; margin: 6px 0; font-family: Consolas, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
-  .source { font-size: 13px; color: var(--ink-soft); margin-top: auto; }
+  .source { font-size: 13px; color: var(--ink-soft); }
+  #build { margin-top: auto; }
   a { color: var(--ink); }
   a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
@@ -129,7 +130,7 @@
   <button id="view-out" aria-label="Zoom out" title="Zoom out">−</button>
   <button id="view-tilt">Look straight down</button>
   <button id="view-flip" aria-pressed="false" title="Turn the picture half a turn: the Moon's north up, or the ground under you">Right-side-up view</button>
-  <button id="view-mode" title="Switch between the detailed south polar map and the whole Moon">Whole Moon</button>
+  <button id="view-mode" title="Pull back to see the whole Moon, or return to the south polar map">Whole Moon</button>
   <button id="view-reset">Reset view</button>
 </div>
 
@@ -168,6 +169,8 @@
 
   <p><a href="../">Open the site dashboard</a> for one site's skyline, timeline and power.</p>
 
+  <p class="source" id="build"></p>
+
   <p class="source" id="source">Terrain from NASA's LOLA elevation grid. Sun and Earth positions from JPL Horizons.</p>
 </aside>
 
@@ -180,7 +183,7 @@
   <iframe id="analysis-frame" title="Analysis of the chosen point"></iframe>
 </dialog>
 
-<p class="how" id="how">Drag to move. Right-drag or Ctrl + drag to turn and tilt. Scroll to zoom.</p>
+<p class="how">Drag to move. Right-drag or Ctrl + drag to turn and tilt. Scroll to zoom.</p>
 
 <div id="tags"></div>
 <div class="cursor" id="cursor" hidden></div>
@@ -197,6 +200,6 @@
 </script>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 <!-- change the ?v= value whenever app.js changes, so browsers do not keep running an old copy -->
-<script type="module" src="./app.js?v=20261115b"></script>
+<script type="module" src="./app.js?v=20261115c"></script>
 </body>
 </html>

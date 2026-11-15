@@ -3,8 +3,8 @@
 // ../data/global_map.json (from pipeline/global_map.py), the rest of the Moon as a smooth ball,
 // and ../data/summary.json (from pipeline/compute_visibility.py), the candidate sites.
 import * as THREE from 'three';
-import { OrbitControls } from './vendor/OrbitControls.js';
 
+const BUILD = '2026-11-15c';       // shown at the bottom of the panel, to tell which copy of this file is running
 const DATA = '../data/';
 const HOURS_CAP = 720;            // "longest night" colours stop at 30 days
 
@@ -77,100 +77,42 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true 
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, 0.005, 50);
-// The camera orbits a point on the surface (the south pole to begin with), so you
-// can tilt down towards the horizon and see the relief, not only look straight down.
 const SOUTH_POLE = new THREE.Vector3(0, -1, 0);
+const rad = THREE.MathUtils.degToRad;
+
+// ---------- the view ----------
+// One way of moving that works anywhere on the Moon, close up or far out. The view always
+// looks at a point on the ground, the "pivot", and is described by four things:
+//   frame     how the ground under the pivot is turned. Its local +Y points straight up from the
+//             ground there, and its local -Z is "forward" along the ground, away from the camera.
+//   distance  from the camera to the pivot, in Moon radii
+//   tilt      0 looks straight down at the pivot; larger angles look along the ground
+//   radius    how far the pivot is from the Moon's centre (it follows the terrain)
+// Dragging turns the frame about the Moon's centre, which slides the ground under you: up close
+// that feels like moving a map, far out like spinning a globe.
+const TILTED = rad(40), MAX_TILT = rad(82), NEAR = 0.03, FAR = 6;
+const WHOLE_MOON = 3.6;                       // distance from which the whole Moon is in view
+const HOME_FRAME = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+  new THREE.Vector3(-0.5, 0, -0.866), SOUTH_POLE, new THREE.Vector3(-0.866, 0, 0.5)));   // over the south pole
+const view = { frame: HOME_FRAME.clone(), distance: 0.42, tilt: TILTED, radius: 1 };
+const pivot = new THREE.Vector3(0, -1, 0);    // where the view is looking, updated every frame
 
 // Two ways up, same camera position, picture turned half a turn.
-// flipped (the default, "upside down"): the Moon's north is up, as on a globe. You look up at
-//   the pole from underneath and the terrain hangs down.
-// not flipped ("right side up"): south is "up" for the camera, so the ground is under you like a map.
+// flipped (the default, "upside down"): at the south pole the Moon's north is up, as on a globe,
+//   so you look up at the pole from underneath and the terrain hangs down.
+// not flipped ("right side up"): the ground is under you, like a map.
 let flipped = true;
 try { flipped = localStorage.getItem('view-way-up') !== 'ground'; } catch { /* storage unavailable */ }
-
-// OrbitControls reads the camera's "up" once, when it is created, so flipping builds a new one.
-// Two ways to move around.
-// 'pole':  the south polar map, handled like a map (drag moves the ground under you).
-// 'globe': the whole Moon, handled like a globe (drag turns it, north is up).
-let mode = 'pole';
-
-let controls = null;
-function makeControls() {
-  const pivot = controls ? controls.target.clone() : SOUTH_POLE.clone();
-  if (controls) controls.dispose();
-  if (mode === 'globe') {
-    camera.up.set(0, 1, 0);
-    controls = new OrbitControls(camera, canvas);
-    controls.target.set(0, 0, 0);            // turn around the Moon's centre
-    controls.enableDamping = true;
-    controls.enablePan = false;
-    controls.rotateSpeed = 0.5;
-    controls.minDistance = 1.25;
-    controls.maxDistance = 7;
-    controls.minPolarAngle = 0.02;
-    controls.maxPolarAngle = Math.PI - 0.02;
-    return;
-  }
-  camera.up.set(0, flipped ? 1 : -1, 0);
-  controls = new OrbitControls(camera, canvas);
-  controls.target.copy(pivot.lengthSq() > 0.25 ? pivot : SOUTH_POLE);   // coming from globe mode the pivot is the centre
-  controls.enableDamping = true;
-  controls.zoomToCursor = true;
-  controls.minDistance = 0.04;
-  controls.maxDistance = 4;
-  // tilt runs from almost straight down on the pole to almost level with the ground;
-  // the controls measure it from their own "up", so the numbers swap when flipped
-  controls.minPolarAngle = THREE.MathUtils.degToRad(flipped ? 97 : 4);
-  controls.maxPolarAngle = THREE.MathUtils.degToRad(flipped ? 176 : 83);
-  // Works like a map: drag moves the ground, right-drag (or Ctrl/Shift + drag) turns and tilts,
-  // the wheel zooms towards the cursor. One finger moves, two fingers zoom and turn.
-  controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
-  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
-  // Right side up, a drag slides along the ground. Flipped, that would run backwards (the
-  // controls take north as "up"), so the drag follows the screen and keepPivotOnGround puts
-  // the pivot back on the surface.
-  controls.screenSpacePanning = flipped;
-  controls.keyPanSpeed = 30;
-  controls.listenToKeyEvents(canvas);      // arrow keys move the view when the map has focus
-}
-makeControls();
 
 function flipView() {
   flipped = !flipped;
   try { localStorage.setItem('view-way-up', flipped ? 'north' : 'ground'); } catch { /* storage unavailable */ }
-  flight = null;
-  makeControls();
   showFlip();
 }
 function showFlip() {
   $('view-flip').textContent = flipped ? 'Right-side-up view' : 'Upside-down view';
   $('view-flip').setAttribute('aria-pressed', String(!flipped));
 }
-
-// Switch between the south polar map and the whole Moon, gliding from one view to the other.
-function setMode(next) {
-  if (next === mode) return;
-  const fromTarget = controls.target.clone(), fromCamera = camera.position.clone();
-  mode = next;
-  flight = null;
-  makeControls();
-  controls.target.copy(fromTarget);          // start the glide from where the view was
-  camera.position.copy(fromCamera);
-  resetView();
-  showMode();
-}
-function showMode() {
-  const globeMode = mode === 'globe';
-  $('view-mode').textContent = globeMode ? 'South pole map' : 'Whole Moon';
-  $('view-tilt').hidden = globeMode;
-  $('view-flip').hidden = globeMode;
-  $('how').textContent = globeMode ? 'Drag to turn the Moon. Scroll to zoom.'
-    : 'Drag to move. Right-drag or Ctrl + drag to turn and tilt. Scroll to zoom.';
-}
-
-// In the helpers below a view is described from the Moon's north (+Y), so 180 degrees is straight down on the pole.
-const STRAIGHT_DOWN = THREE.MathUtils.degToRad(176), TILTED = THREE.MathUtils.degToRad(140);
-const HOME = { turn: THREE.MathUtils.degToRad(-60), distance: 0.42 };
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.9));
 const sunLight = new THREE.DirectionalLight(0xfff2dd, 2.2);
@@ -569,94 +511,147 @@ function groundRadius(dir) {
   return k >= 0 ? cellRadius(k) : 1;
 }
 
-// The view always turns around a point on the ground (the "pivot"). After moving the view,
-// put the pivot back on the surface and keep it over the mapped area, so you cannot drift
-// off into space or under the terrain. The camera is shifted by the same amount.
-let pivotRadius = 1;
-function keepPivotOnGround() {
-  const t = controls.target, dir = t.clone().normalize();
-  const limit = map ? 1.25 * map.radius_km / map.moon_radius_km : 0.12;     // radians from the pole
-  const away = dir.angleTo(SOUTH_POLE);
-  if (away > limit) dir.copy(SOUTH_POLE.clone().lerp(dir, limit / away)).normalize();   // pull back to the edge
-  pivotRadius += (groundRadius(dir) - pivotRadius) * 0.2;                   // ease over height steps
-  const shift = dir.multiplyScalar(pivotRadius).sub(t);
-  t.add(shift);
-  camera.position.add(shift);
+// Far from the Moon the view straightens up, so the whole Moon sits in the middle of the screen.
+const tiltNow = () => view.tilt * THREE.MathUtils.clamp((2.4 - view.distance) / 1.4, 0, 1);
+
+// Put the camera where the view says.
+function applyView() {
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(view.frame);          // straight up from the ground at the pivot
+  view.radius += (groundRadius(up) - view.radius) * 0.2;                      // ease over steps in the terrain
+  pivot.copy(up).multiplyScalar(view.radius);
+  const t = tiltNow();
+  camera.position.set(0, view.distance * Math.cos(t), view.distance * Math.sin(t)).applyQuaternion(view.frame).add(pivot);
+  camera.up.set(0, Math.sin(t), -Math.cos(t)).applyQuaternion(view.frame);    // "forward along the ground" is up on screen
+  if (flipped) camera.up.negate();
+  camera.lookAt(pivot);
 }
 
-// Glide to a new view: where the pivot is and where the camera sits.
-let flight = null;
-function glide(target, cameraPos) {
-  const fromTarget = controls.target.clone(), fromCamera = camera.position.clone();
-  controls.enableDamping = false;           // one update without damping drops any leftover drag motion,
-  controls.update();                        // so it cannot nudge the view after the glide ends
-  controls.enableDamping = true;
+// Slide the ground by a number of screen pixels (what a drag does).
+function pan(dx, dy) {
+  const perPixel = 2 * view.distance * Math.tan(rad(camera.fov / 2)) / canvas.clientHeight;   // ground covered by one pixel
+  const sign = flipped ? -1 : 1;                                   // flipped, the screen is the other way round
+  const mx = -dx * perPixel * sign;                                // the pivot moves the opposite way to the drag
+  const mz = -dy * perPixel * sign / Math.max(Math.cos(tiltNow()), 0.35);
+  const length = Math.hypot(mx, mz);
+  if (!length) return;
+  // moving the pivot over the ground = turning the frame about an axis lying in the ground
+  view.frame.multiply(new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(mz / length, 0, -mx / length), Math.min(length / view.radius, 1.5))).normalize();
+}
+
+// Turn the view around the pivot and tilt it (what a right-drag does).
+function turnAndTilt(dx, dy) {
+  view.frame.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -dx * 0.005)).normalize();
+  view.tilt = THREE.MathUtils.clamp(view.tilt - dy * 0.005, 0, MAX_TILT);
+}
+
+// Zoom by a factor. With a screen position (the cursor), the ground under it stays under it.
+function zoom(factor, x, y) {
+  let held = null;
+  if (x !== undefined) {
+    const r = canvas.getBoundingClientRect();
+    ray.setFromCamera(new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1), camera);
+    held = ray.ray.intersectSphere(new THREE.Sphere(new THREE.Vector3(), view.radius), new THREE.Vector3());
+  }
+  view.distance = THREE.MathUtils.clamp(view.distance * factor, NEAR, FAR);
+  if (!held) return;
+  applyView();
+  camera.updateMatrixWorld();
+  // see where that bit of ground ended up on screen, and slide it back under the cursor
+  const now = held.clone().project(camera), r = canvas.getBoundingClientRect();
+  pan(x - r.left - (now.x * 0.5 + 0.5) * r.width, y - r.top - (-now.y * 0.5 + 0.5) * r.height);
+}
+
+// Glide to a new view over 0.7 seconds. Any of frame, distance and tilt may be given.
+let glideTo = null;
+function glide(target) {
+  const to = { frame: target.frame || view.frame.clone(), distance: target.distance ?? view.distance, tilt: target.tilt ?? view.tilt };
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    controls.target.copy(target); camera.position.copy(cameraPos); return;
+    view.frame.copy(to.frame); view.distance = to.distance; view.tilt = to.tilt; glideTo = null; return;
   }
-  controls.target.copy(fromTarget);         // that update may have pulled the view inside the controls' limits
-  camera.position.copy(fromCamera);
-  flight = { fromTarget, fromCamera, to: { target, camera: cameraPos }, start: performance.now() };
+  glideTo = { from: { frame: view.frame.clone(), distance: view.distance, tilt: view.tilt }, to, start: performance.now() };
+}
+function stepGlide(now) {
+  const g = glideTo, t = Math.min((now - g.start) / 700, 1), e = t * t * (3 - 2 * t);
+  view.frame.slerpQuaternions(g.from.frame, g.to.frame, e);
+  view.distance = g.from.distance * Math.pow(g.to.distance / g.from.distance, e);   // even steps of zoom
+  view.tilt = THREE.MathUtils.lerp(g.from.tilt, g.to.tilt, e);
+  if (t === 1) glideTo = null;
 }
 
-// Offset of the camera from the pivot for a tilt (angle from north), a turn and a distance.
-function viewOffset(tilt, turn, distance) {
-  return new THREE.Vector3().setFromSpherical(new THREE.Spherical(distance, tilt, turn));
-}
-function currentView() {
-  return new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+// The frame for looking at a lat/lon: the current frame swung the short way round to that spot.
+function frameAt(lat, lon) {
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(view.frame);
+  return new THREE.Quaternion().setFromUnitVectors(up, unit(lat, lon)).multiply(view.frame);
 }
 
-// Move the pivot to a spot and come in close, keeping the current viewing angle.
-// The spots this is used for are all on the polar map, so it switches to that way of moving first.
-function flyTo(lat, lon) {
-  const k = cellAt(Math.max(lat, -89.999), lon);
-  const spot = unit(lat, lon).multiplyScalar(k >= 0 ? cellRadius(k) : 1);
-  let offset = camera.position.clone().sub(controls.target);
-  offset.setLength(Math.min(offset.length(), 0.12));
-  if (mode === 'globe') {
-    const fromTarget = controls.target.clone(), fromCamera = camera.position.clone();
-    mode = 'pole';
-    makeControls();
-    controls.target.copy(fromTarget);
-    camera.position.copy(fromCamera);
-    showMode();
-    offset = viewOffset(TILTED, HOME.turn, 0.12);
-  }
-  glide(spot, spot.clone().add(offset));
+function flyTo(lat, lon) {                    // bring a spot to the middle and come in close
+  glide({ frame: frameAt(lat, lon), distance: Math.min(view.distance, 0.12), tilt: view.tilt || TILTED });
 }
-
-function resetView() {
-  if (mode === 'globe') {                   // the whole Moon, seen from a little south of the near side's centre
-    glide(new THREE.Vector3(), unit(-20, 15).multiplyScalar(3.6));
-    return;
-  }
-  const pole = SOUTH_POLE.clone().multiplyScalar(groundRadius(SOUTH_POLE));
-  glide(pole, pole.clone().add(viewOffset(TILTED, HOME.turn, HOME.distance)));
+function resetView() {                        // back to the south polar map
+  glide({ frame: HOME_FRAME.clone(), distance: 0.42, tilt: TILTED });
+}
+// Pull back until the whole Moon is in view: the near side, seen from a little south of its
+// centre, with north at the top of the screen.
+function wholeMoon() {
+  const up = unit(-20, 15), north = new THREE.Vector3(0, 1, 0).addScaledVector(up, -up.y).normalize();
+  const back = north.multiplyScalar(flipped ? 1 : -1);        // flipped, "forward along the ground" points down the screen
+  const frame = new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(new THREE.Vector3().crossVectors(up, back), up, back));
+  glide({ frame, distance: WHOLE_MOON });
 }
 function zoomBy(factor) {
-  const v = currentView();
-  v.radius = THREE.MathUtils.clamp(v.radius * factor, controls.minDistance, controls.maxDistance);
-  glide(controls.target.clone(), controls.target.clone().add(new THREE.Vector3().setFromSpherical(v)));
+  glide({ distance: THREE.MathUtils.clamp(view.distance * factor, NEAR, FAR) });
 }
-function toggleTilt() {                     // switch between looking straight down and a tilted view
-  const v = currentView();
-  v.phi = v.phi > THREE.MathUtils.degToRad(165) ? TILTED : STRAIGHT_DOWN;
-  glide(controls.target.clone(), controls.target.clone().add(new THREE.Vector3().setFromSpherical(v)));
+function toggleTilt() {                       // switch between looking straight down and a tilted view
+  glide({ tilt: view.tilt < rad(8) ? TILTED : 0 });
 }
 
-// The camera swings around the Moon's centre while its distance changes, so a long glide
-// (pole to whole Moon and back) goes around the Moon instead of through it.
-function stepFlight(now) {
-  const t = Math.min((now - flight.start) / 700, 1), e = t * t * (3 - 2 * t);
-  controls.target.lerpVectors(flight.fromTarget, flight.to.target, e);
-  const from = flight.fromCamera.clone().normalize(), to = flight.to.camera.clone().normalize();
-  const swing = new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(from, to), e);
-  camera.position.copy(from).applyQuaternion(swing)
-    .multiplyScalar(THREE.MathUtils.lerp(flight.fromCamera.length(), flight.to.camera.length(), e));
-  camera.lookAt(controls.target);
-  if (t === 1) flight = null;
+// Mouse, touch and keyboard. A drag slides the ground. A right-drag, or a drag with Ctrl or
+// Shift held, turns and tilts. The wheel zooms towards the cursor. Two fingers pinch to zoom
+// and twist to turn.
+const fingers = new Map();                    // pointers currently down: id -> { x, y, turning }
+let pinch = null;
+function fingerPair() {
+  const [a, b] = [...fingers.values()];
+  return { gap: Math.hypot(a.x - b.x, a.y - b.y), angle: Math.atan2(b.y - a.y, b.x - a.x), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
+canvas.addEventListener('pointerdown', ev => {
+  canvas.setPointerCapture(ev.pointerId);
+  fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY, turning: ev.button === 2 || ev.ctrlKey || ev.shiftKey || ev.metaKey });
+  pinch = fingers.size === 2 ? fingerPair() : null;
+  glideTo = null;                             // taking hold of the view stops any glide
+});
+canvas.addEventListener('pointermove', ev => {
+  const f = fingers.get(ev.pointerId);
+  if (!f) return;
+  const dx = ev.clientX - f.x, dy = ev.clientY - f.y;
+  f.x = ev.clientX; f.y = ev.clientY;
+  if (fingers.size === 1) {
+    if (f.turning) turnAndTilt(dx, dy); else pan(dx, dy);
+  } else if (fingers.size === 2 && pinch) {
+    const now = fingerPair();
+    zoom(pinch.gap / Math.max(now.gap, 1), now.x, now.y);
+    view.frame.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (now.angle - pinch.angle) * (flipped ? -1 : 1))).normalize();
+    pinch = now;
+  }
+});
+for (const type of ['pointerup', 'pointercancel']) {
+  canvas.addEventListener(type, ev => { fingers.delete(ev.pointerId); pinch = null; });
+}
+canvas.addEventListener('contextmenu', ev => ev.preventDefault());          // right-drag turns the view instead
+canvas.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  glideTo = null;
+  zoom(Math.exp(THREE.MathUtils.clamp(ev.deltaY, -300, 300) * 0.0015), ev.clientX, ev.clientY);
+}, { passive: false });
+canvas.addEventListener('keydown', ev => {    // with the map focused: arrows move, + and - zoom, 0 or Home resets
+  const step = 60, moves = { ArrowLeft: [step, 0], ArrowRight: [-step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
+  if (moves[ev.key]) { pan(...moves[ev.key]); ev.preventDefault(); }
+  else if (ev.key === '+' || ev.key === '=') zoomBy(0.6);
+  else if (ev.key === '-' || ev.key === '_') zoomBy(1 / 0.6);
+  else if (ev.key === '0' || ev.key === 'Home') resetView();
+});
 
 // ---------- picking ----------
 
@@ -736,13 +731,15 @@ function resize() {
 
 function frame(now) {
   resize();
-  if (flight) stepFlight(now);              // a glide moves the camera itself
-  else {
-    controls.update();
-    if (mode === 'pole') keepPivotOnGround();
+  if (glideTo) stepGlide(now);
+  applyView();
+  // the buttons say what they will do next
+  const far = view.distance > 1.8, down = view.tilt < rad(8);
+  if ($('view-mode').dataset.far !== String(far)) {
+    $('view-mode').dataset.far = String(far);
+    $('view-mode').textContent = far ? 'South pole map' : 'Whole Moon';
   }
-  const down = mode === 'pole' && currentView().phi > THREE.MathUtils.degToRad(165);
-  if (mode === 'pole' && $('view-tilt').dataset.down !== String(down)) {
+  if ($('view-tilt').dataset.down !== String(down)) {
     $('view-tilt').dataset.down = String(down);
     $('view-tilt').textContent = down ? 'Tilt the view' : 'Look straight down';
   }
@@ -763,21 +760,14 @@ async function getFile(name) {
 const getJson = async name => (await getFile(name)).json();
 
 async function start() {
-  // start below the pole, tilted 40 degrees off straight-down, far enough to see the whole map
-  camera.position.copy(SOUTH_POLE).add(viewOffset(TILTED, HOME.turn, HOME.distance));
   $('view-reset').addEventListener('click', resetView);
   $('view-in').addEventListener('click', () => zoomBy(0.6));
   $('view-out').addEventListener('click', () => zoomBy(1 / 0.6));
   $('view-tilt').addEventListener('click', toggleTilt);
   $('view-flip').addEventListener('click', flipView);
-  $('view-mode').addEventListener('click', () => setMode(mode === 'globe' ? 'pole' : 'globe'));
+  $('view-mode').addEventListener('click', () => (view.distance > 1.8 ? resetView() : wholeMoon()));
   showFlip();
-  showMode();
-  canvas.addEventListener('keydown', ev => {      // with the map focused: + and - zoom, 0 or Home resets
-    if (ev.key === '+' || ev.key === '=') zoomBy(0.6);
-    else if (ev.key === '-' || ev.key === '_') zoomBy(1 / 0.6);
-    else if (ev.key === '0' || ev.key === 'Home') resetView();
-  });
+  $('build').textContent = `Page version ${BUILD}.`;
   buildGraticule();
   buildRim();
 
