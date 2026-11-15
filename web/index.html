@@ -64,6 +64,7 @@
   .where { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
   .hint { color: var(--ink-soft); }
   #sites-note { font-size: 13px; margin-bottom: 8px; }
+  #world-note { font-size: 13px; margin-top: 8px; }
   .actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-top: 10px; }
   .actions .hint { font-size: 13px; }
   dl + .hint { margin-top: 8px; font-size: 13px; }
@@ -128,13 +129,14 @@
   <button id="view-out" aria-label="Zoom out" title="Zoom out">−</button>
   <button id="view-tilt">Look straight down</button>
   <button id="view-flip" aria-pressed="false" title="Turn the picture half a turn: the Moon's north up, or the ground under you">Right-side-up view</button>
+  <button id="view-mode" title="Switch between the detailed south polar map and the whole Moon">Whole Moon</button>
   <button id="view-reset">Reset view</button>
 </div>
 
 <aside class="chart">
   <header>
     <h1>Lunar south pole exposure</h1>
-    <p class="lede">How much of the year each spot can see the Sun and the Earth, once the surrounding terrain is taken into account.</p>
+    <p class="lede">How much of the year each spot can see the Sun and the Earth. Around the south pole the surrounding terrain is taken into account.</p>
   </header>
 
   <div class="notice" id="notice" hidden></div>
@@ -148,6 +150,7 @@
     </div>
     <div class="ramp" id="ramp"></div>
     <div class="ticks" id="ticks"></div>
+    <p class="hint" id="world-note" hidden>Outside the south polar map, in muted colours, the Moon is treated as a smooth ball: hills and crater walls are ignored.</p>
     <div class="best" id="best"></div>
     <label class="relief">Relief <input type="range" id="relief" min="1" max="12" step="1" value="5"> <span id="relief-value">5×</span></label>
   </section>
@@ -177,7 +180,7 @@
   <iframe id="analysis-frame" title="Analysis of the chosen point"></iframe>
 </dialog>
 
-<p class="how">Drag to move. Right-drag or Ctrl + drag to turn and tilt. Scroll to zoom.</p>
+<p class="how" id="how">Drag to move. Right-drag or Ctrl + drag to turn and tilt. Scroll to zoom.</p>
 
 <div id="tags"></div>
 <div class="cursor" id="cursor" hidden></div>

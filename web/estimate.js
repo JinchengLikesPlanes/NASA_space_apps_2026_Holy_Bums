@@ -9,8 +9,12 @@
 // It is a quick estimate: the nearest point on the map's grid, the 120 m terrain grid,
 // and a skyline sampled every 2 degrees. pipeline/server.py gives the detailed answer.
 //
+// Anywhere else on the Moon it can only treat the ground as a smooth ball (a flat horizon),
+// like pipeline/global_map.py: fair where the Sun climbs high, not near the poles.
+//
 // Use:  const est = await MapEstimate.load("data/");   // null if the skylines are not there
-//       const site = est.site(-88.5, 45);               // null if the point is off the map
+//       const site = est.site(-88.5, 45);               // null if the point is off the polar map
+//       const site = est.smooth(0.67, 23.47);           // any point, terrain ignored
 //       site.row, site.eph, site.hor, site.vis          // same shapes as the pipeline's files
 (function (root) {
   const R = 1737400;            // lunar reference radius, metres
@@ -92,13 +96,29 @@
       return [lat, (deg(Math.atan2(x, y)) + 360) % 360];
     }
 
+    // A point on the south polar map: its nearest grid point, with the saved terrain skyline.
     function site(lat, lon) {
       const k = cellAt(Math.max(lat, -89.9999), lon);
       if (k < 0) return null;
-      let [cLat, cLon] = cellLatLon(k);
-      cLat = Math.max(cLat, -89.9999);             // azimuth is undefined exactly at the pole
-      const ground = map.height_m[k];
-      const sky = skylines.subarray(slot[k] * dirs, (slot[k] + 1) * dirs);
+      const [cLat, cLon] = cellLatLon(k);
+      const south = cLat < 0 ? "S" : "N";
+      return analyse(cLat, cLon, skylines.subarray(slot[k] * dirs, (slot[k] + 1) * dirs), map.height_m[k],
+        { id: `map_${k}`, name: `Map point ${Math.abs(cLat).toFixed(2)}°${south}, ${cLon.toFixed(1)}°E`, estimate: "map", terrain: "lola" });
+    }
+
+    // Any point on the Moon, as a smooth ball: a flat horizon in every direction.
+    const flat = new Int16Array(dirs);
+    function smooth(lat, lon) {
+      if (!(lat >= -90 && lat <= 90) || !isFinite(lon)) return null;
+      lon = ((lon % 360) + 360) % 360;
+      const ns = lat < 0 ? "S" : "N";
+      return analyse(lat, lon, flat, 0,
+        { id: `moon_${lat.toFixed(2)}_${lon.toFixed(2)}`, name: `Smooth Moon ${Math.abs(lat).toFixed(2)}°${ns}, ${lon.toFixed(1)}°E`, estimate: "smooth", terrain: "smooth" });
+    }
+
+    // sky: the skyline in hundredths of a degree, one value per direction. ground: height in metres.
+    function analyse(cLat, cLon, sky, ground, label) {
+      cLat = Math.min(Math.max(cLat, -89.9999), 89.9999);   // azimuth is undefined exactly at a pole
       const terrain = az => {                       // skyline angle in any direction, in degrees
         const f = (((az % 360) + 360) % 360) / step, i0 = Math.floor(f) % dirs, t = f - Math.floor(f);
         return (sky[i0] * (1 - t) + sky[(i0 + 1) % dirs] * t) / 100;
@@ -133,28 +153,27 @@
         if (m > bestMean) { bestMean = m; bestAz = face; fixed = p; }
       }
 
-      const south = cLat < 0 ? "S" : "N";
       const row = {
-        id: `map_${k}`, name: `Map point ${Math.abs(cLat).toFixed(2)}°${south}, ${cLon.toFixed(1)}°E`,
-        lat: round(cLat, 4), lon: round(cLon, 4), estimate: true,
+        id: label.id, name: label.name,
+        lat: round(cLat, 4), lon: round(cLon, 4), estimate: label.estimate,
         sun_pct: round(100 * mean(frac), 1),
         earth_pct: round(100 * mean(earth.map(Number)), 1),
         both_pct: round(100 * mean(frac.map((f, t) => f * earth[t])), 1),
         longest_dark_h: longestRun(frac.map(f => !(f > 0))),
         longest_no_comm_h: longestRun(earth.map(e => !e)),
-        terrain: "lola", slope_deg: null, ground_height_m: ground,
+        terrain: label.terrain, slope_deg: null, ground_height_m: ground,
         max_sun_elevation_deg: round(Math.max(...eph.sun_el), 2),
         avg_power_track_w_m2: round(mean(track), 1), avg_power_fixed_w_m2: round(bestMean, 1),
         fixed_panel_best_az_deg: bestAz, avg_power_flat_w_m2: round(mean(flat), 1),
       };
-      const hor = { id: row.id, name: row.name, lat: row.lat, lon: row.lon, terrain: "lola",
+      const hor = { id: row.id, name: row.name, lat: row.lat, lon: row.lon, terrain: label.terrain,
         azimuth_deg: Array.from(sky, (_, i) => i * step), horizon_deg: Array.from(sky, v => v / 100) };
       const vis = { id: row.id, time_utc: ref.time_utc, sun_fraction: frac.map(f => round(f, 2)),
         earth_visible: earth.map(Number), power_track_w_m2: track.map(v => round(v, 1)),
         power_fixed_w_m2: fixed.map(v => round(v, 1)), power_flat_w_m2: flat.map(v => round(v, 1)) };
       return { row, eph, hor, vis };
     }
-    return { site, cellAt, cellLatLon, spacing_km: map.spacing_km, az_step_deg: step };
+    return { site, smooth, cellAt, cellLatLon, spacing_km: map.spacing_km, az_step_deg: step };
   }
 
   // Fetch the three files from the data folder. Resolves to null if the skylines are not there.

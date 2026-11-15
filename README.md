@@ -16,7 +16,8 @@ There are two pages:
 - **Site dashboard** (`index.html`): pick a site and a date, see the skyline,
   the Sun and Earth, power, and a comparison table. Can analyse a typed-in point.
 - **3D map** (`web/`): the south polar terrain coloured by sunlight, Earth
-  visibility or longest night, for every point on a grid.
+  visibility or longest night, for every point on a grid. "Whole Moon" shows the
+  rest of the Moon too, treated as a smooth ball (terrain ignored).
 
 The elevation grids are too large for GitHub, so download them once (111 MB,
 saved in a folder named `lola` next to the repo folder):
@@ -62,9 +63,10 @@ Kit) as `web/assets/moon.jpg` to give the globe a photo surface.
 2. `horizon_profile.py` the terrain skyline around each site, from LOLA
 3. `compute_visibility.py` sunlight, Earth visibility and panel power at each site
 4. `exposure_map.py` sunlight and Earth visibility for every point on a grid around the pole
+5. `global_map.py` the same for the whole Moon as a smooth ball (no LOLA files needed)
 
-5. `slope_map.py` how steep the ground is across a 1 km landing zone around each site
-6. `score_sites.py` one ranked score per site from sunlight, Earth visibility and slope
+6. `slope_map.py` how steep the ground is across a 1 km landing zone around each site
+7. `score_sites.py` one ranked score per site from sunlight, Earth visibility and slope
 
 `refine_sites.py` suggests better coordinates for the sites (highest ground nearby).
 `test_exposure_map.py` and `test_slope_map.py` check the maths and need no LOLA files.

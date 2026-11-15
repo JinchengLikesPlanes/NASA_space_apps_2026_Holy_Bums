@@ -294,7 +294,7 @@ async function render(full) {
   if (full) { drawTimeline(d); drawTable();
     const site = state.sites.find(s => s.id === state.id) || {};
     $("terrainNote").hidden = site.terrain !== "smooth";
-    $("estimateNote").hidden = !site.estimate;
+    $("estimateNote").hidden = !(site.estimate === true || site.estimate === "map");   // "smooth" estimates use the no-terrain note
     document.querySelectorAll("#sites button").forEach(b => b.setAttribute("aria-pressed", b.dataset.id === state.id)); }
   else Plotly.relayout("timeline", { "shapes[0].x0": new Date(d.t[state.i]), "shapes[0].x1": new Date(d.t[state.i]) });
 }
@@ -322,7 +322,7 @@ function showSites() {                  // sites from summary.json, then quick e
 // skylines that pipeline/exposure_map.py saved. Needs no server. Returns null if it cannot be done.
 async function addEstimate(lat, lon) {
   const est = window.MapEstimate ? await MapEstimate.load("data/") : null;
-  const s = est && est.site(lat, lon);
+  const s = est && (est.site(lat, lon) || est.smooth(lat, lon));   // on the polar map, else smooth Moon
   if (!s) return null;
   const sunUp = s.vis.sun_fraction.map(f => f >= 0.5), earthUp = s.vis.earth_visible.map(v => v === 1);
   state.cache[s.row.id] = { eph: s.eph, hor: s.hor, vis: s.vis, t: s.eph.time_utc.map(parseTime),
@@ -349,7 +349,9 @@ async function addCustom(ev) {          // ask the local server to run the pipel
     setSite(row.id);
   } catch (err) {
     const quick = await addEstimate(parseFloat($("cLat").value), parseFloat($("cLon").value)).catch(() => null);
-    $("cStatus").textContent = quick ? `${err.message} Showing a quick estimate for the nearest map point instead.` : err.message;
+    $("cStatus").textContent = !quick ? err.message : quick.estimate === "smooth"
+      ? `${err.message} Showing a smooth-Moon estimate (terrain ignored) instead.`
+      : `${err.message} Showing a quick estimate for the nearest map point instead.`;
     if (state.linked && !quick) {              // arrived from the 3D map: say clearly that this is not that point
       const shown = (state.sites.find(s => s.id === state.id) || {}).name || "another site";
       $("error").style.display = "block";

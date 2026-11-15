@@ -1,6 +1,7 @@
 // 3D view of the Moon's south pole, coloured by sunlight / Earth visibility.
-// Reads ../data/exposure_map.json (from pipeline/exposure_map.py) and
-// ../data/summary.json (from pipeline/compute_visibility.py).
+// Reads ../data/exposure_map.json (from pipeline/exposure_map.py), the detailed south polar map,
+// ../data/global_map.json (from pipeline/global_map.py), the rest of the Moon as a smooth ball,
+// and ../data/summary.json (from pipeline/compute_visibility.py), the candidate sites.
 import * as THREE from 'three';
 import { OrbitControls } from './vendor/OrbitControls.js';
 
@@ -88,13 +89,31 @@ let flipped = true;
 try { flipped = localStorage.getItem('view-way-up') !== 'ground'; } catch { /* storage unavailable */ }
 
 // OrbitControls reads the camera's "up" once, when it is created, so flipping builds a new one.
+// Two ways to move around.
+// 'pole':  the south polar map, handled like a map (drag moves the ground under you).
+// 'globe': the whole Moon, handled like a globe (drag turns it, north is up).
+let mode = 'pole';
+
 let controls = null;
 function makeControls() {
   const pivot = controls ? controls.target.clone() : SOUTH_POLE.clone();
   if (controls) controls.dispose();
+  if (mode === 'globe') {
+    camera.up.set(0, 1, 0);
+    controls = new OrbitControls(camera, canvas);
+    controls.target.set(0, 0, 0);            // turn around the Moon's centre
+    controls.enableDamping = true;
+    controls.enablePan = false;
+    controls.rotateSpeed = 0.5;
+    controls.minDistance = 1.25;
+    controls.maxDistance = 7;
+    controls.minPolarAngle = 0.02;
+    controls.maxPolarAngle = Math.PI - 0.02;
+    return;
+  }
   camera.up.set(0, flipped ? 1 : -1, 0);
   controls = new OrbitControls(camera, canvas);
-  controls.target.copy(pivot);
+  controls.target.copy(pivot.lengthSq() > 0.25 ? pivot : SOUTH_POLE);   // coming from globe mode the pivot is the centre
   controls.enableDamping = true;
   controls.zoomToCursor = true;
   controls.minDistance = 0.04;
@@ -128,6 +147,27 @@ function showFlip() {
   $('view-flip').setAttribute('aria-pressed', String(!flipped));
 }
 
+// Switch between the south polar map and the whole Moon, gliding from one view to the other.
+function setMode(next) {
+  if (next === mode) return;
+  const fromTarget = controls.target.clone(), fromCamera = camera.position.clone();
+  mode = next;
+  flight = null;
+  makeControls();
+  controls.target.copy(fromTarget);          // start the glide from where the view was
+  camera.position.copy(fromCamera);
+  resetView();
+  showMode();
+}
+function showMode() {
+  const globeMode = mode === 'globe';
+  $('view-mode').textContent = globeMode ? 'South pole map' : 'Whole Moon';
+  $('view-tilt').hidden = globeMode;
+  $('view-flip').hidden = globeMode;
+  $('how').textContent = globeMode ? 'Drag to turn the Moon. Scroll to zoom.'
+    : 'Drag to move. Right-drag or Ctrl + drag to turn and tilt. Scroll to zoom.';
+}
+
 // In the helpers below a view is described from the Moon's north (+Y), so 180 degrees is straight down on the pole.
 const STRAIGHT_DOWN = THREE.MathUtils.degToRad(176), TILTED = THREE.MathUtils.degToRad(140);
 const HOME = { turn: THREE.MathUtils.degToRad(-60), distance: 0.42 };
@@ -143,6 +183,8 @@ scene.add(moon);
 let map = null;          // exposure_map.json
 let cap = null;          // coloured terrain mesh
 let globe = null;
+let world = null;        // global_map.json: the whole Moon as a smooth ball
+let globeTex = null;     // the globe's colours, one pixel per cell of `world`
 let layer = 'sun';
 let relief = 5;
 const tags = [];         // site labels: { el, lat, lon }
@@ -156,11 +198,57 @@ function buildGlobe(cutKm) {
   const mat = new THREE.MeshStandardMaterial({ color: 0x8f8c86, roughness: 1 });
   globe = new THREE.Mesh(geo, mat);
   moon.add(globe);
-  // optional photo texture: drop an equirectangular Moon image at web/assets/moon.jpg
+  if (world) { paintGlobe(); return; }
+  // no whole-Moon data: plain grey, or a photo if an equirectangular Moon image is at web/assets/moon.jpg
   new THREE.TextureLoader().load('./assets/moon.jpg', tex => {
     tex.colorSpace = THREE.SRGBColorSpace;
     mat.map = tex; mat.color.set(0xffffff); mat.needsUpdate = true;
   }, undefined, () => {});
+}
+
+const MUTED = new THREE.Color(0x8f8c86);
+
+// Colour the globe by the current layer, from the whole-Moon (smooth ball) values.
+// The values form a longitude/latitude grid, which is exactly the layout of a sphere texture.
+function paintGlobe() {
+  if (!world || !globe) return;
+  const L = LAYERS[layer], values = world[L.key], count = world.n_lon * world.n_lat;
+  const px = new Uint8Array(count * 4), c = {};
+  for (let i = 0; i < count; i++) {
+    // half-way to grey: these values ignore terrain, and the muted look keeps the terrain map in front
+    rampColour(L.ramp, L.scale(values[i])).lerp(MUTED, 0.5).getRGB(c, THREE.SRGBColorSpace);
+    px[i * 4] = Math.round(c.r * 255); px[i * 4 + 1] = Math.round(c.g * 255); px[i * 4 + 2] = Math.round(c.b * 255); px[i * 4 + 3] = 255;
+  }
+  if (!globeTex) {
+    globeTex = new THREE.DataTexture(px, world.n_lon, world.n_lat, THREE.RGBAFormat);
+    globeTex.colorSpace = THREE.SRGBColorSpace;
+    globeTex.magFilter = THREE.LinearFilter;         // blend between cells
+    globeTex.minFilter = THREE.LinearFilter;
+    globeTex.wrapS = THREE.RepeatWrapping;           // longitude wraps around
+    globe.material.dispose();
+    globe.material = new THREE.MeshBasicMaterial({ map: globeTex });   // unlit, so colours match the legend
+  } else {
+    globeTex.image.data.set(px);
+  }
+  // the sphere stops short of the south pole (the hole for the terrain map), so the texture must too
+  const shown = globe.geometry.parameters.thetaLength / Math.PI;
+  globeTex.repeat.set(1, shown);
+  globeTex.offset.set(0, 1 - shown);
+  globeTex.needsUpdate = true;
+}
+
+// Index of the whole-Moon cell containing a lat/lon.
+function worldCell(lat, lon) {
+  const east = ((lon + 180) % 360 + 360) % 360 - 180;       // -180 to 180
+  const i = ((Math.round((east - world.lon0_deg) / world.step_deg) % world.n_lon) + world.n_lon) % world.n_lon;
+  const j = Math.min(Math.max(Math.round((lat - world.lat0_deg) / world.step_deg), 0), world.n_lat - 1);
+  return j * world.n_lon + i;
+}
+
+// A faint outline, so the Moon's edge stays visible where its colours are as dark as the sky.
+function buildRim() {
+  moon.add(new THREE.Mesh(new THREE.SphereGeometry(1.006, 96, 64),
+    new THREE.MeshBasicMaterial({ color: 0xece7d8, transparent: true, opacity: 0.35, side: THREE.BackSide })));
 }
 
 function buildGraticule() {
@@ -274,46 +362,64 @@ function cellAt(lat, lon) {
   return map.sun_pct[k] === null ? -1 : k;
 }
 
-function showPoint(k) {
-  const [lat, lon] = cellLatLon(k);
-  const where = Object.assign(document.createElement('p'), { className: 'where', textContent: place(lat, lon) });
+// A link that opens the dashboard for a point in a pop-up panel over the map.
+function analyseLink(lat, lon, text, title) {
+  const a = Object.assign(document.createElement('a'), { href: `../?lat=${lat}&lon=${lon}`, textContent: text });
+  a.addEventListener('click', ev => {             // ctrl/middle click still opens the full page in a new tab
+    if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+    ev.preventDefault();
+    openAnalysis(lat, lon, title);
+  });
+  return a;
+}
+
+// Fill the point readout: a heading, rows of [label, value], and for a selected point the
+// analyse link (or the reason there is none) plus a Release button.
+function showReadout(whereText, rows, selected, link, reshow) {
+  const where = Object.assign(document.createElement('p'), { className: 'where', textContent: whereText });
   const dl = document.createElement('dl');
-  const row = (a, b) => dl.append(Object.assign(document.createElement('dt'), { textContent: a }),
-    Object.assign(document.createElement('dd'), { textContent: b }));
-  row('Sunlight', `${map.sun_pct[k].toFixed(1)}% of the year`);
-  row('Earth in view', `${map.earth_pct[k].toFixed(1)}% of the year`);
-  row('Longest night', days(map.longest_dark_h[k]));
-  row('Height', `${map.height_m[k].toLocaleString('en')} m`);
+  for (const [a, b] of rows) {
+    dl.append(Object.assign(document.createElement('dt'), { textContent: a }), Object.assign(document.createElement('dd'), { textContent: b }));
+  }
   $('readout').replaceChildren(where, dl);
-  $('point-title').textContent = pinned === null ? 'Point under the cursor' : 'Selected point';
-  if (pinned === null) {
+  $('point-title').textContent = selected ? 'Selected point' : 'Point under the cursor';
+  if (!selected) {
     $('readout').append(Object.assign(document.createElement('p'), { className: 'hint', textContent: 'Click the map to keep a spot selected.' }));
     return;
   }
-  // The link opens the dashboard for this point in a pop-up panel over the map. A candidate site
-  // is already analysed; any other map point is estimated in the browser from the saved skylines.
-  const analyse = (aLat, aLon, text, title) => {
-    const a = Object.assign(document.createElement('a'), { href: `../?lat=${aLat}&lon=${aLon}`, textContent: text });
-    a.addEventListener('click', ev => {             // ctrl/middle click still opens the full page in a new tab
-      if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
-      ev.preventDefault();
-      openAnalysis(aLat, aLon, title);
-    });
-    return a;
-  };
   const release = Object.assign(document.createElement('button'), { textContent: 'Release' });
-  release.addEventListener('click', () => { pinned = null; pinnedSite = null; hover = null; showPoint(k); });
+  release.addEventListener('click', () => { pinned = null; pinnedSite = null; pinnedGlobe = null; hover = null; reshow(); });
   const actions = Object.assign(document.createElement('p'), { className: 'actions' });
-  if (pinnedSite) {
-    actions.append(analyse(pinnedSite.lat, pinnedSite.lon, `Analyse ${pinnedSite.name}`, pinnedSite.name));
-  } else if (canAnalyse || map.horizons) {       // map.horizons: the dashboard can estimate it in the browser
-    actions.append(analyse(lat.toFixed(4), lon.toFixed(4), 'Analyse this point', place(lat, lon)));
-  } else {
-    actions.append(Object.assign(document.createElement('span'), { className: 'hint',
-      textContent: 'Analysing a new point needs a map made by the latest exposure_map.py, or the site started with pipeline/server.py.' }));
-  }
+  actions.append(link || Object.assign(document.createElement('span'), { className: 'hint',
+    textContent: 'Analysing a new point needs a map made by the latest exposure_map.py, or the site started with pipeline/server.py.' }));
   actions.append(release);
   $('readout').append(actions);
+}
+
+// A point on the south polar terrain map. A candidate site is already analysed; any other
+// map point is estimated in the browser from the saved skylines.
+function showPoint(k) {
+  const [lat, lon] = cellLatLon(k);
+  const link = pinnedSite ? analyseLink(pinnedSite.lat, pinnedSite.lon, `Analyse ${pinnedSite.name}`, pinnedSite.name)
+    : (canAnalyse || map.horizons) ? analyseLink(lat.toFixed(4), lon.toFixed(4), 'Analyse this point', place(lat, lon)) : null;
+  showReadout(place(lat, lon), [
+    ['Sunlight', `${map.sun_pct[k].toFixed(1)}% of the year`],
+    ['Earth in view', `${map.earth_pct[k].toFixed(1)}% of the year`],
+    ['Longest night', days(map.longest_dark_h[k])],
+    ['Height', `${map.height_m[k].toLocaleString('en')} m`],
+  ], pinned !== null, link, () => showPoint(k));
+}
+
+// A point anywhere else on the Moon, from the smooth-ball values (terrain ignored).
+function showGlobePoint(lat, lon) {
+  const c = worldCell(lat, lon), east = (lon + 360) % 360;
+  const link = (map && map.horizons) ? analyseLink(lat.toFixed(2), east.toFixed(2), 'Analyse this point', place(lat, east)) : null;
+  showReadout(place(lat, east), [
+    ['Sunlight', `${world.sun_pct[c].toFixed(1)}% of the year`],
+    ['Earth in view', `${world.earth_pct[c].toFixed(1)}% of the year`],
+    ['Longest night', days(world.longest_dark_h[c])],
+    ['Terrain', 'ignored (smooth Moon)'],
+  ], pinnedGlobe !== null, link, () => showGlobePoint(lat, lon));
 }
 
 // Show the dashboard for one coordinate in a panel over the map. The dashboard page is loaded
@@ -340,8 +446,18 @@ $('analysis').addEventListener('click', ev => { if (ev.target === $('analysis'))
 function pin(k, site = null) {
   pinned = k;
   pinnedSite = site;
+  pinnedGlobe = null;
   hover = new THREE.Vector3().fromBufferAttribute(cap.geometry.attributes.position, k);
   showPoint(k);
+}
+
+// The same for a point outside the polar map. point is where the cursor ring sits.
+function pinGlobe(lat, lon, point) {
+  pinned = null;
+  pinnedSite = null;
+  pinnedGlobe = { lat, lon };
+  hover = point.clone();
+  showGlobePoint(lat, lon);
 }
 
 // sites: rows of summary.json. zones: slope_summary.json rows or null. scores: scores.json or null.
@@ -415,13 +531,16 @@ function keepPivotOnGround() {
 // Glide to a new view: where the pivot is and where the camera sits.
 let flight = null;
 function glide(target, cameraPos) {
+  const fromTarget = controls.target.clone(), fromCamera = camera.position.clone();
   controls.enableDamping = false;           // one update without damping drops any leftover drag motion,
   controls.update();                        // so it cannot nudge the view after the glide ends
   controls.enableDamping = true;
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     controls.target.copy(target); camera.position.copy(cameraPos); return;
   }
-  flight = { fromTarget: controls.target.clone(), fromCamera: camera.position.clone(), to: { target, camera: cameraPos }, start: performance.now() };
+  controls.target.copy(fromTarget);         // that update may have pulled the view inside the controls' limits
+  camera.position.copy(fromCamera);
+  flight = { fromTarget, fromCamera, to: { target, camera: cameraPos }, start: performance.now() };
 }
 
 // Offset of the camera from the pivot for a tilt (angle from north), a turn and a distance.
@@ -433,15 +552,29 @@ function currentView() {
 }
 
 // Move the pivot to a spot and come in close, keeping the current viewing angle.
+// The spots this is used for are all on the polar map, so it switches to that way of moving first.
 function flyTo(lat, lon) {
   const k = cellAt(Math.max(lat, -89.999), lon);
   const spot = unit(lat, lon).multiplyScalar(k >= 0 ? cellRadius(k) : 1);
-  const offset = camera.position.clone().sub(controls.target);
+  let offset = camera.position.clone().sub(controls.target);
   offset.setLength(Math.min(offset.length(), 0.12));
+  if (mode === 'globe') {
+    const fromTarget = controls.target.clone(), fromCamera = camera.position.clone();
+    mode = 'pole';
+    makeControls();
+    controls.target.copy(fromTarget);
+    camera.position.copy(fromCamera);
+    showMode();
+    offset = viewOffset(TILTED, HOME.turn, 0.12);
+  }
   glide(spot, spot.clone().add(offset));
 }
 
 function resetView() {
+  if (mode === 'globe') {                   // the whole Moon, seen from a little south of the near side's centre
+    glide(new THREE.Vector3(), unit(-20, 15).multiplyScalar(3.6));
+    return;
+  }
   const pole = SOUTH_POLE.clone().multiplyScalar(groundRadius(SOUTH_POLE));
   glide(pole, pole.clone().add(viewOffset(TILTED, HOME.turn, HOME.distance)));
 }
@@ -456,11 +589,16 @@ function toggleTilt() {                     // switch between looking straight d
   glide(controls.target.clone(), controls.target.clone().add(new THREE.Vector3().setFromSpherical(v)));
 }
 
+// The camera swings around the Moon's centre while its distance changes, so a long glide
+// (pole to whole Moon and back) goes around the Moon instead of through it.
 function stepFlight(now) {
-  if (!flight) return;
   const t = Math.min((now - flight.start) / 700, 1), e = t * t * (3 - 2 * t);
   controls.target.lerpVectors(flight.fromTarget, flight.to.target, e);
-  camera.position.lerpVectors(flight.fromCamera, flight.to.camera, e);
+  const from = flight.fromCamera.clone().normalize(), to = flight.to.camera.clone().normalize();
+  const swing = new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(from, to), e);
+  camera.position.copy(from).applyQuaternion(swing)
+    .multiplyScalar(THREE.MathUtils.lerp(flight.fromCamera.length(), flight.to.camera.length(), e));
+  camera.lookAt(controls.target);
   if (t === 1) flight = null;
 }
 
@@ -470,17 +608,28 @@ const ray = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 let canAnalyse = false;      // true when pipeline/server.py is serving the page
 let pinnedSite = null;
+let pinnedGlobe = null;       // { lat, lon } of a selected point outside the polar map
 let hover = null, pickQueued = false, pinned = null, pickToPin = false, downAt = null;
 
 function pick() {
   pickQueued = false;
   const wantPin = pickToPin;
   pickToPin = false;
-  if (!cap || (pinned !== null && !wantPin)) return;
+  const selected = pinned !== null || pinnedGlobe !== null;
+  if (selected && !wantPin) return;
   ray.setFromCamera(pointer, camera);
-  const hit = ray.intersectObject(cap)[0];
-  if (!hit) { if (pinned === null) hover = null; return; }
-  // nearest of the triangle's three corners
+  const hit = ray.intersectObjects([cap, world ? globe : null].filter(Boolean))[0];
+  if (!hit) { if (!selected) hover = null; return; }
+
+  if (hit.object === globe) {               // outside the polar map: smooth-Moon values
+    const d = hit.point.clone().normalize();
+    const lat = THREE.MathUtils.radToDeg(Math.asin(d.y)), lon = THREE.MathUtils.radToDeg(Math.atan2(-d.z, d.x));
+    if (wantPin) { pinGlobe(lat, lon, hit.point); return; }
+    hover = hit.point.clone();
+    showGlobePoint(lat, lon);
+    return;
+  }
+  // on the polar map: nearest of the triangle's three corners
   const corners = [hit.face.a, hit.face.b, hit.face.c];
   const p = new THREE.Vector3(), pos = cap.geometry.attributes.position;
   let k = corners[0], bestD = Infinity;
@@ -531,11 +680,13 @@ function resize() {
 
 function frame(now) {
   resize();
-  stepFlight(now);
-  controls.update();
-  if (!flight) keepPivotOnGround();
-  const down = currentView().phi > THREE.MathUtils.degToRad(165);
-  if ($('view-tilt').dataset.down !== String(down)) {
+  if (flight) stepFlight(now);              // a glide moves the camera itself
+  else {
+    controls.update();
+    if (mode === 'pole') keepPivotOnGround();
+  }
+  const down = mode === 'pole' && currentView().phi > THREE.MathUtils.degToRad(165);
+  if (mode === 'pole' && $('view-tilt').dataset.down !== String(down)) {
     $('view-tilt').dataset.down = String(down);
     $('view-tilt').textContent = down ? 'Tilt the view' : 'Look straight down';
   }
@@ -561,13 +712,16 @@ async function start() {
   $('view-out').addEventListener('click', () => zoomBy(1 / 0.6));
   $('view-tilt').addEventListener('click', toggleTilt);
   $('view-flip').addEventListener('click', flipView);
+  $('view-mode').addEventListener('click', () => setMode(mode === 'globe' ? 'pole' : 'globe'));
   showFlip();
+  showMode();
   canvas.addEventListener('keydown', ev => {      // with the map focused: + and - zoom, 0 or Home resets
     if (ev.key === '+' || ev.key === '=') zoomBy(0.6);
     else if (ev.key === '-' || ev.key === '_') zoomBy(1 / 0.6);
     else if (ev.key === '0' || ev.key === 'Home') resetView();
   });
   buildGraticule();
+  buildRim();
 
   try {
     map = await getJson('exposure_map.json');
@@ -581,6 +735,8 @@ async function start() {
   // server.py answers /api/site with JSON even when no point is given; a plain file server does not
   fetch('../api/site').then(r => { canAnalyse = (r.headers.get('content-type') || '').includes('json'); }).catch(() => {});
 
+  world = await getJson('global_map.json').catch(() => null);        // optional: made by global_map.py
+  $('world-note').hidden = !world;
   buildGlobe(map ? map.radius_km - 2 * map.spacing_km : 0);
   if (map) {
     buildCap();
@@ -595,7 +751,7 @@ async function start() {
   } catch { /* sites are optional */ }
 
   for (const input of document.querySelectorAll('input[name=layer]')) {
-    input.addEventListener('change', () => { layer = input.value; paintCap(); showLegend(); });
+    input.addEventListener('change', () => { layer = input.value; if (cap) paintCap(); paintGlobe(); showLegend(); });
   }
   $('relief').addEventListener('input', ev => {
     relief = Number(ev.target.value);
