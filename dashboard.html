@@ -6,7 +6,7 @@
 <title>Lunar Landing Site Navigator</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <!-- change the ?v= value whenever estimate.js changes, so browsers do not keep running an old copy -->
-<script src="web/estimate.js?v=20261115d"></script>
+<script src="web/estimate.js?v=20261115h"></script>
 <style>
   :root {
     color-scheme: light;
@@ -70,6 +70,13 @@
   tbody tr.sel td:first-child { font-weight: 650; box-shadow: inset 3px 0 0 var(--accent); }
   td.best { font-weight: 650; }
   td.best::after { content: " ★"; color: var(--text-3); font-weight: 400; }
+  th.group { text-align: center; color: var(--text); font-weight: 650; }
+  .now { border-left: 1px solid var(--line); }
+  #table th, #table td { padding: 8px 7px; }
+  #table td:first-child { min-width: 180px; }
+  td:not(:first-child) { white-space: nowrap; }
+  td .kind { display: block; color: var(--text-3); font-size: 12px; font-weight: 400; }
+  #pick { margin: 0 0 12px; padding: 10px 14px; border-left: 4px solid var(--accent); background: var(--page); }
   .scroll { overflow-x: auto; }
   #error { display: none; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid #e34948;
            border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
@@ -135,7 +142,12 @@
 
   <section>
     <h2>Compare sites</h2>
-    <p class="note">Yearly figures for each site. A star marks the best value in each column. Click a row to open that site.</p>
+    <p id="pick" hidden></p>
+    <p class="note">Left: figures for the whole year, with a star on the best value in each column. Right: what each site
+      sees at the date and time chosen above, so moving the slider compares the sites hour by hour. Click a row to open that site.</p>
+    <p class="note">The score is out of 100: 40% sunlight, 30% Earth in view, 30% safe ground within 1 km. Only the three sites
+      run through the full pipeline have a ground-slope figure, so only they are scored. The other rows are past landing sites
+      and targets, estimated in your browser from the whole-Moon elevation grid (one height every 3.8 km).</p>
     <div class="scroll"><table id="table"><thead></thead><tbody></tbody></table></div>
   </section>
 
@@ -268,15 +280,31 @@ function terrainAt(d, az) {
 }
 
 function drawTable() {
-  const cols = [["name", "Site", null], ["sun_pct", "Sunlight", "max", v => v.toFixed(1) + "%"], ["earth_pct", "Earth in view", "max", v => v.toFixed(1) + "%"],
-    ["both_pct", "Both", "max", v => v.toFixed(1) + "%"], ["longest_dark_h", "Longest dark", "min", v => span(v)],
+  const pct = v => v.toFixed(1) + "%";
+  const year = [["score", "Score", "max", v => v.toFixed(1)], ["sun_pct", "Sunlight", "max", pct], ["earth_pct", "Earth in view", "max", pct],
+    ["both_pct", "Both", "max", pct], ["longest_dark_h", "Longest dark", "min", v => span(v)],
     ["longest_no_comm_h", "Longest radio gap", "min", v => span(v)], ["slope_deg", "Ground slope", "min", v => v.toFixed(1) + "°"],
-    ["avg_power_track_w_m2", "Avg power, tracking", "max", v => Math.round(v) + " W/m²"]].filter(c => c[0] === "name" || state.sites.some(s => s[c[0]] != null));
-  $("table").tHead.innerHTML = "<tr>" + cols.map(c => `<th scope="col">${c[1]}</th>`).join("") + "</tr>";
+    ["avg_power_track_w_m2", "Avg power, W/m²", "max", v => Math.round(v)]].filter(c => state.sites.some(s => s[c[0]] != null));
+  // the same hour at every site whose data has arrived: the three pipeline sites load in the background
+  const i = state.i, now = [
+    ["Sun", d => { const f = d.vis.sun_fraction[i]; return f >= 0.995 ? "In view" : f > 0 ? Math.round(f * 100) + "%" : "Hidden"; }],
+    ["Earth", d => d.earthUp[i] ? "In view" : "Hidden"],
+    ["Power, W/m²", d => Math.round(d.vis.power_track_w_m2[i])]];
+  const open = state.cache[state.id], when = open ? fmtTime(open.t[i]) : "the chosen time";
+  $("table").tHead.innerHTML = `<tr><th scope="col" rowspan="2">Site</th><th scope="colgroup" class="group" colspan="${year.length}">Whole year</th>` +
+    `<th scope="colgroup" class="group now" colspan="${now.length}">At ${when}</th></tr><tr>` +
+    year.map(c => `<th scope="col">${c[1]}</th>`).join("") + now.map((c, k) => `<th scope="col"${k ? "" : ' class="now"'}>${c[0]}</th>`).join("") + "</tr>";
   const best = {};
-  cols.forEach(([k, , mode]) => { if (mode) best[k] = Math[mode](...state.sites.map(s => s[k]).filter(v => v != null)); });
-  $("table").tBodies[0].innerHTML = state.sites.map(s => `<tr data-id="${s.id}" class="${s.id === state.id ? "sel" : ""}">` +
-    cols.map(([k, , mode, fmt]) => `<td class="${mode && state.sites.length > 1 && s[k] === best[k] ? "best" : ""}">${fmt ? (s[k] == null ? "–" : fmt(s[k])) : s[k]}</td>`).join("") + "</tr>").join("");
+  year.forEach(([k, , mode]) => { best[k] = Math[mode](...state.sites.map(s => s[k]).filter(v => v != null)); });
+  const kind = s => s.estimate ? `<span class="kind">${s.what ? s.what + ". " : ""}Quick estimate</span>` : "";
+  $("table").tBodies[0].innerHTML = state.sites.map(s => { const d = state.cache[s.id];
+    return `<tr data-id="${s.id}" class="${s.id === state.id ? "sel" : ""}"><td>${s.name}${kind(s)}</td>` +
+      year.map(([k, , , fmt]) => `<td class="${state.sites.length > 1 && s[k] != null && s[k] === best[k] ? "best" : ""}">${s[k] == null ? "–" : fmt(s[k])}</td>`).join("") +
+      now.map(([, f], k) => `<td${k ? "" : ' class="now"'}>${d ? f(d) : "…"}</td>`).join("") + "</tr>"; }).join("");
+  const top = state.sites.filter(s => s.score != null).sort((x, y) => y.score - x.score);
+  $("pick").hidden = !top.length;
+  if (top.length) $("pick").replaceChildren(Object.assign(document.createElement("strong"), { textContent: `Recommended: ${top[0].name}. ` }),
+    `It scores ${top[0].score.toFixed(1)} out of 100` + (top[1] ? `, ahead of ${top[1].name} at ${top[1].score.toFixed(1)}.` : "."));
 }
 
 function drawTime(d) {
@@ -302,7 +330,7 @@ async function render(full) {
     $("estimateNote").hidden = !how;
     if (how) $("estimateNote").replaceChildren(Object.assign(document.createElement("strong"), { textContent: "Quick estimate. " }), how);
     document.querySelectorAll("#sites button").forEach(b => b.setAttribute("aria-pressed", b.dataset.id === state.id)); }
-  else Plotly.relayout("timeline", { "shapes[0].x0": new Date(d.t[state.i]), "shapes[0].x1": new Date(d.t[state.i]) });
+  else { drawTable(); Plotly.relayout("timeline", { "shapes[0].x0": new Date(d.t[state.i]), "shapes[0].x1": new Date(d.t[state.i]) }); }
 }
 const setSite = id => { state.id = id; render(true).catch(showError); };
 const setIndex = i => { state.i = i; render(false).catch(showError); };
@@ -317,6 +345,10 @@ function showError(err) {
 
 async function loadSummary() {
   state.files = await getJSON("data/summary.json");
+  try {                                  // overall ranking from pipeline/score_sites.py, if it has been run
+    const scores = (await getJSON("data/scores.json")).sites;
+    for (const s of state.files) { const hit = scores.find(x => x.id === s.id); if (hit) s.score = hit.score; }
+  } catch (err) { /* no scores file: the table just has no Score column */ }
   showSites();
 }
 function showSites() {                  // sites from summary.json, then quick estimates made in this session
@@ -326,18 +358,48 @@ function showSites() {                  // sites from summary.json, then quick e
 
 // Quick answer for a point on the 3D map, worked out in the browser by web/estimate.js from the
 // skylines that pipeline/exposure_map.py saved. Needs no server. Returns null if it cannot be done.
-async function addEstimate(lat, lon, name = "") {      // name: what to call the point, if it has one
+// Past landing sites and targets to compare with, east longitude positive. They lie outside the 20 m and
+// 120 m polar grids the pipeline uses (or, for Mons Mouton, outside the saved polar map), so each is
+// estimated in the browser from the whole-Moon grid. Sources: LROC for Apollo, IM-2 and Chandrayaan-3;
+// NASA NSSDC for Chang'e 4.
+const PRESETS = [
+  { name: "Apollo 11, Sea of Tranquility", what: "Landed 1969, near the equator", lat: 0.674, lon: 23.473 },
+  { name: "Apollo 15, Hadley Rille", what: "Landed 1971, northern mid-latitudes", lat: 26.132, lon: 3.634 },
+  { name: "Chang'e 4, Von Kármán crater", what: "Landed 2019, far side", lat: -45.4561, lon: 177.5885 },
+  { name: "Chandrayaan-3, Shiv Shakti point", what: "Landed 2023", lat: -69.3741, lon: 32.32 },
+  { name: "IM-2 Athena, Mons Mouton", what: "Landed 2025, in an Artemis III candidate region", lat: -84.7906, lon: 29.1957 },
+];
+async function makeEstimate(lat, lon, name = "", extra = {}) {      // name: what to call the point, if it has one
   const est = window.MapEstimate ? await MapEstimate.load("data/") : null;
   const s = est && (est.site(lat, lon) || await est.anywhere(lat, lon));   // on the polar map, else the coarse whole-Moon terrain
   if (!s) return null;
   if (name) s.row.name = name;
+  Object.assign(s.row, extra);
   const sunUp = s.vis.sun_fraction.map(f => f >= 0.5), earthUp = s.vis.earth_visible.map(v => v === 1);
   state.cache[s.row.id] = { eph: s.eph, hor: s.hor, vis: s.vis, t: s.eph.time_utc.map(parseTime),
                             sunUp, earthUp, both: sunUp.map((v, k) => v && earthUp[k]) };
   state.estimates = state.estimates.filter(r => r.id !== s.row.id).concat(s.row);
-  showSites();
-  setSite(s.row.id);
   return s.row;
+}
+async function addEstimate(lat, lon, name = "") {
+  const row = await makeEstimate(lat, lon, name);
+  if (!row) return null;
+  showSites();
+  setSite(row.id);
+  return row;
+}
+// After the first site is on screen: fetch the other pipeline sites for the "at this time" columns,
+// then work out the comparison sites one at a time so the page stays responsive.
+async function fillTable(presets) {
+  const refresh = () => { showSites(); drawTable();
+    document.querySelectorAll("#sites button").forEach(b => b.setAttribute("aria-pressed", b.dataset.id === state.id)); };
+  await Promise.all(state.files.map(s => loadSite(s.id).catch(() => null)));
+  drawTable();
+  for (const p of presets ? PRESETS : []) {
+    try { await makeEstimate(p.lat, p.lon, p.name, { what: p.what, preset: true }); } catch (err) { break; }   // no map data: skip them
+    refresh();
+    await new Promise(r => setTimeout(r));
+  }
 }
 
 async function addCustom(ev) {          // ask the local server to run the pipeline for a typed-in point
@@ -409,6 +471,7 @@ async function start() {
   state.id = state.sites[0].id;
   await render(true);
   openLinkedPoint();
+  fillTable(!document.body.classList.contains("embed"));    // the 3D map's pop-up shows one point, so it skips the comparison sites
   $("timeline").addEventListener("click", ev => {       // click anywhere on the timeline to jump there
     const d = state.cache[state.id], ax = $("timeline")._fullLayout.xaxis;
     const px = ev.clientX - $("timeline").getBoundingClientRect().left - ax._offset;
