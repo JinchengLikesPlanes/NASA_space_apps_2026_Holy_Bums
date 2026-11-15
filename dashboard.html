@@ -360,13 +360,10 @@ function showSites() {                  // sites from summary.json, then quick e
 // skylines that pipeline/exposure_map.py saved. Needs no server. Returns null if it cannot be done.
 // Past landing sites and targets to compare with, east longitude positive. They lie outside the 20 m and
 // 120 m polar grids the pipeline uses (or, for Mons Mouton, outside the saved polar map), so each is
-// estimated in the browser from the whole-Moon grid. Sources: LROC for Apollo, IM-2 and Chandrayaan-3;
-// NASA NSSDC for Chang'e 4.
+// estimated in the browser from the whole-Moon grid. Positions from Lunar Reconnaissance Orbiter images.
 const PRESETS = [
   { name: "Apollo 11, Sea of Tranquility", what: "Landed 1969, near the equator", lat: 0.674, lon: 23.473 },
   { name: "Apollo 15, Hadley Rille", what: "Landed 1971, northern mid-latitudes", lat: 26.132, lon: 3.634 },
-  { name: "Chang'e 4, Von Kármán crater", what: "Landed 2019, far side", lat: -45.4561, lon: 177.5885 },
-  { name: "Chandrayaan-3, Shiv Shakti point", what: "Landed 2023", lat: -69.3741, lon: 32.32 },
   { name: "IM-2 Athena, Mons Mouton", what: "Landed 2025, in an Artemis III candidate region", lat: -84.7906, lon: 29.1957 },
 ];
 async function makeEstimate(lat, lon, name = "", extra = {}) {      // name: what to call the point, if it has one

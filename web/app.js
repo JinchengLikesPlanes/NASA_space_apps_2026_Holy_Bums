@@ -4,7 +4,7 @@
 // and ../data/summary.json (from pipeline/compute_visibility.py), the candidate sites.
 import * as THREE from 'three';
 
-const BUILD = '2026-11-15h';       // shown at the bottom of the panel, to tell which copy of this file is running
+const BUILD = '2026-11-15i';       // shown at the bottom of the panel, to tell which copy of this file is running
 const DATA = '../data/';
 const HOURS_CAP = 720;            // "longest night" colours stop at 30 days
 
@@ -36,9 +36,8 @@ const LAYERS = {
   },
 };
 
-// Where the six Apollo crews and three recent robotic landers set down, for comparison with the
-// candidate sites. East longitude positive. Apollo, Chandrayaan-3 and IM-2 positions are from
-// Lunar Reconnaissance Orbiter images; Chang'e 4 is from NASA's NSSDC list.
+// Where the six Apollo crews and the IM-2 robotic lander set down, for comparison with the
+// candidate sites. East longitude positive. Positions are from Lunar Reconnaissance Orbiter images.
 const APOLLO = [
   { name: 'Apollo 11', where: 'Sea of Tranquility', when: 'July 1969', lat: 0.674, lon: 23.473 },
   { name: 'Apollo 12', where: 'Ocean of Storms', when: 'November 1969', lat: -3.012, lon: -23.422 },
@@ -46,8 +45,6 @@ const APOLLO = [
   { name: 'Apollo 15', where: 'Hadley Rille', when: 'July 1971', lat: 26.132, lon: 3.634 },
   { name: 'Apollo 16', where: 'Descartes Highlands', when: 'April 1972', lat: -8.973, lon: 15.500, below: true },
   { name: 'Apollo 17', where: 'Taurus-Littrow valley', when: 'December 1972', lat: 20.191, lon: 30.772 },
-  { name: "Chang'e 4", where: 'Von Kármán crater, far side', when: 'January 2019', lat: -45.4561, lon: 177.5885 },
-  { name: 'Chandrayaan-3', where: 'Shiv Shakti point', when: 'August 2023', lat: -69.3741, lon: 32.32 },
   { name: 'IM-2 Athena', where: 'Mons Mouton', when: 'March 2025', lat: -84.7906, lon: 29.1957 },
 ];
 

@@ -18,12 +18,12 @@ There are three pages:
 - **Site dashboard** (`dashboard.html`): pick a site and a date, see the skyline,
   the Sun and Earth, power, and a comparison table with a score and a recommended
   site. The table also shows each site at the chosen date and time, and adds
-  Apollo 11, Apollo 15, Chang'e 4, Chandrayaan-3 and IM-2 (Mons Mouton) as quick
+  Apollo 11, Apollo 15 and IM-2 (Mons Mouton) as quick
   estimates for comparison. Can analyse a typed-in point.
 - **3D map** (`web/`): the south polar terrain coloured by sunlight, Earth
   visibility or longest night, for every point on a grid. "Whole Moon" shows the
   rest of the Moon too, from a much coarser whole-Moon elevation grid.
-  The six Apollo landing sites and three recent landings are marked for comparison.
+  The six Apollo landing sites and the IM-2 landing site are marked for comparison.
 
 The pages need no server of their own: all the data they read is in `data/`, so
 they also work from GitHub Pages (repo Settings, Pages, deploy from the `main`
