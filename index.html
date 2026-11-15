@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lunar Landing Site Navigator</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="web/estimate.js"></script>
 <style>
   :root {
     color-scheme: light;
@@ -26,9 +27,12 @@
   body { margin: 0; background: var(--page); color: var(--text);
          font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   main { max-width: 1120px; margin: 0 auto; padding: 24px 20px 48px; }
+  body.embed h1, body.embed p.lead { display: none; }
+  body.embed main { padding-top: 16px; }
   h1 { font-size: 26px; margin: 0 0 4px; font-weight: 650; letter-spacing: -0.01em; }
   h2 { font-size: 17px; margin: 0 0 2px; font-weight: 600; }
   p.lead { margin: 0 0 20px; color: var(--text-2); max-width: 70ch; }
+  a { color: var(--accent); }
   p.note { margin: 0 0 10px; color: var(--text-2); font-size: 14px; max-width: 80ch; }
   section { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
             padding: 16px 18px; margin-bottom: 16px; }
@@ -75,7 +79,8 @@
 <main>
   <h1>Lunar Landing Site Navigator</h1>
   <p class="lead">Pick a landing site and a date to see whether the Sun (power) and Earth (direct radio link)
-    are above the real terrain, how long until that changes, and how the sites compare.</p>
+    are above the real terrain, how long until that changes, and how the sites compare.
+    To find promising spots first, <a href="web/">open the 3D map of the south pole</a>.</p>
 
   <div id="error"></div>
 
@@ -114,6 +119,9 @@
     <p class="note">The grey shape is the terrain skyline in every compass direction, measured by NASA's LOLA laser altimeter.
       A filled circle is in view; a hollow circle is hidden behind terrain. Small dots show the path over the coming month.
       On Earth the Sun climbs high overhead. Here it never rises more than a few degrees, so low hills decide everything.</p>
+    <p class="note" id="estimateNote" hidden><strong>Quick estimate.</strong> This point is worked out in your browser from
+      the 3D map's saved data: the nearest point on its 2 km grid, 120 m terrain, and a skyline sampled every 2°.
+      For the detailed answer, start the site with <code>python pipeline/server.py</code> and use "Analyse this point".</p>
     <p class="note" id="terrainNote" hidden><strong>No terrain data for this location.</strong> It lies outside the
       south-polar elevation grid, so a smooth horizon is used. Away from the poles the Sun rises high, so terrain matters far less.</p>
     <div id="pano" class="chart" style="height:380px"></div>
@@ -143,7 +151,7 @@
 const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
 const $ = id => document.getElementById(id);
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const state = { sites: [], cache: {}, id: null, i: 0, timer: null };
+const state = { sites: [], files: [], estimates: [], cache: {}, id: null, i: 0, timer: null };
 
 async function getJSON(path) {
   const r = await fetch(path);
@@ -198,17 +206,19 @@ const axis = extra => Object.assign({ fixedrange: true, gridcolor: css("--grid")
 function drawPanorama(d) {
   const i = state.i, e = d.eph, surface = css("--surface");
   const az = d.hor.azimuth_deg.concat([360]), hz = d.hor.horizon_deg.concat([d.hor.horizon_deg[0]]);
-  const lo = Math.min(...hz, ...e.sun_el, ...e.earth_el) - 0.5;
-  const hi = Math.max(...hz, ...e.sun_el, ...e.earth_el) + 1.6;
+  const top = Math.max(...hz, ...e.sun_el, ...e.earth_el);
+  const lo = Math.max(Math.min(...hz, ...e.sun_el, ...e.earth_el) - 0.5, -15);   // don't waste space far below ground
+  const hi = top + Math.max(1.6, 0.14 * (top - lo));                              // headroom for labels
   const next = n => Array.from({ length: Math.min(n, d.t.length - i) }, (_, k) => i + k);
   const path = (body, n, color) => ({ x: next(n).map(k => e[body + "_az"][k]), y: next(n).map(k => e[body + "_el"][k]),
     mode: "markers", marker: { size: 2.5, color, opacity: 0.55 }, hoverinfo: "skip" });
-  const body = (key, label, color, up, extra) => ({ x: [e[key + "_az"][i]], y: [e[key + "_el"][i]],
+  const body = (key, label, color, up, extra) => ({ x: [e[key + "_az"][i]], y: [Math.max(e[key + "_el"][i], lo + 0.06 * (hi - lo))],
+    customdata: [e[key + "_el"][i]],
     mode: "markers+text", text: [label + (up ? "" : " (hidden)")], cliponaxis: false,
     textposition: e[key + "_az"][i] < 30 ? "top right" : e[key + "_az"][i] > 330 ? "top left" : "top center",
     textfont: { color: css("--text"), size: 13 },
     marker: { size: 16, color: up ? color : surface, line: { color: up ? surface : color, width: up ? 2 : 2.5 } },
-    hovertemplate: `${label}<br>direction %{x:.1f}°<br>elevation %{y:.2f}°${extra}<extra></extra>` });
+    hovertemplate: `${label}<br>direction %{x:.1f}°<br>elevation %{customdata:.2f}°${extra}<extra></extra>` });
   const data = [
     path("sun", 708, css("--sun")), path("earth", 655, css("--earth")),
     { x: [0, 360], y: [lo, lo], mode: "lines", line: { width: 0 }, hoverinfo: "skip" },
@@ -282,7 +292,9 @@ async function render(full) {
   state.i = Math.max(0, Math.min(state.i, d.t.length - 1));
   drawTime(d); drawTiles(d); drawPanorama(d);
   if (full) { drawTimeline(d); drawTable();
-    $("terrainNote").hidden = (state.sites.find(s => s.id === state.id) || {}).terrain !== "smooth";
+    const site = state.sites.find(s => s.id === state.id) || {};
+    $("terrainNote").hidden = site.terrain !== "smooth";
+    $("estimateNote").hidden = !site.estimate;
     document.querySelectorAll("#sites button").forEach(b => b.setAttribute("aria-pressed", b.dataset.id === state.id)); }
   else Plotly.relayout("timeline", { "shapes[0].x0": new Date(d.t[state.i]), "shapes[0].x1": new Date(d.t[state.i]) });
 }
@@ -298,8 +310,27 @@ function showError(err) {
 }
 
 async function loadSummary() {
-  state.sites = await getJSON("data/summary.json");
+  state.files = await getJSON("data/summary.json");
+  showSites();
+}
+function showSites() {                  // sites from summary.json, then quick estimates made in this session
+  state.sites = state.files.concat(state.estimates);
   $("sites").innerHTML = state.sites.map(s => `<button type="button" data-id="${s.id}" aria-pressed="false">${s.name}</button>`).join("");
+}
+
+// Quick answer for a point on the 3D map, worked out in the browser by web/estimate.js from the
+// skylines that pipeline/exposure_map.py saved. Needs no server. Returns null if it cannot be done.
+async function addEstimate(lat, lon) {
+  const est = window.MapEstimate ? await MapEstimate.load("data/") : null;
+  const s = est && est.site(lat, lon);
+  if (!s) return null;
+  const sunUp = s.vis.sun_fraction.map(f => f >= 0.5), earthUp = s.vis.earth_visible.map(v => v === 1);
+  state.cache[s.row.id] = { eph: s.eph, hor: s.hor, vis: s.vis, t: s.eph.time_utc.map(parseTime),
+                            sunUp, earthUp, both: sunUp.map((v, k) => v && earthUp[k]) };
+  state.estimates = state.estimates.filter(r => r.id !== s.row.id).concat(s.row);
+  showSites();
+  setSite(s.row.id);
+  return s.row;
 }
 
 async function addCustom(ev) {          // ask the local server to run the pipeline for a typed-in point
@@ -317,11 +348,42 @@ async function addCustom(ev) {          // ask the local server to run the pipel
     $("cStatus").textContent = `Added ${row.name}.`;
     setSite(row.id);
   } catch (err) {
-    $("cStatus").textContent = err.message;
-  } finally { $("cGo").disabled = false; }
+    const quick = await addEstimate(parseFloat($("cLat").value), parseFloat($("cLon").value)).catch(() => null);
+    $("cStatus").textContent = quick ? `${err.message} Showing a quick estimate for the nearest map point instead.` : err.message;
+    if (state.linked && !quick) {              // arrived from the 3D map: say clearly that this is not that point
+      const shown = (state.sites.find(s => s.id === state.id) || {}).name || "another site";
+      $("error").style.display = "block";
+      $("error").replaceChildren(
+        Object.assign(document.createElement("strong"), { textContent: `Could not analyse the point from the 3D map (${state.linked}).` }),
+        ` ${err.message} The charts below show ${shown} instead.`);
+    }
+  } finally { $("cGo").disabled = false; state.linked = null; }
+}
+
+function openLinkedPoint() {         // the 3D map links here with ?lat=..&lon=.. in the address
+  const q = new URLSearchParams(location.search);
+  return openPoint(parseFloat(q.get("lat")), parseFloat(q.get("lon")), q.get("name") || "");
+}
+
+// Show the analysis for one coordinate. Also called directly by the 3D map, which keeps this
+// page open in a pop-up panel and asks for a new point each time one is chosen.
+async function openPoint(lat, rawLon, name = "") {
+  if (isNaN(lat) || isNaN(rawLon) || lat < -90 || lat > 90) return;
+  $("error").style.display = "none";
+  const lon = ((rawLon % 360) + 360) % 360;       // any longitude -> 0 to 360 east
+  const near = (a, b) => Math.abs(a - b) < 5e-5;
+  const known = state.sites.find(s => near(s.lat, lat) && near(s.lon, lon));
+  if (known) return setSite(known.id);            // already analysed: just open it
+  if (await addEstimate(lat, lon)) return;        // on the 3D map: instant estimate in the browser
+  $("cLat").value = lat; $("cLon").value = lon; $("cName").value = name;
+  state.linked = `latitude ${lat}, longitude ${lon}°E`;
+  $("custom").requestSubmit();                    // same as pressing "Analyse this point"
 }
 
 async function start() {
+  // inside the 3D map's pop-up panel: drop the page title and intro, the panel has its own
+  if (new URLSearchParams(location.search).has("embed")) document.body.classList.add("embed");
+  window.openPoint = openPoint;
   await loadSummary();
   $("custom").onsubmit = addCustom;
   $("sites").onclick = e => e.target.dataset.id && setSite(e.target.dataset.id);
@@ -337,6 +399,7 @@ async function start() {
   };
   state.id = state.sites[0].id;
   await render(true);
+  openLinkedPoint();
   $("timeline").addEventListener("click", ev => {       // click anywhere on the timeline to jump there
     const d = state.cache[state.id], ax = $("timeline")._fullLayout.xaxis;
     const px = ev.clientX - $("timeline").getBoundingClientRect().left - ax._offset;

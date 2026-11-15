@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lunar south pole exposure</title>
+<style>
+  :root {
+    --night: #0c1022;      /* sky behind the Moon */
+    --paper: #ece7d8;      /* chart paper */
+    --ink: #1a2140;        /* chart ink */
+    --ink-soft: #5a5f78;
+    --rule: rgba(26, 33, 64, 0.22);
+    --sun: #f2a541;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(120% 90% at 65% 45%, #171d3a 0%, var(--night) 60%);
+    color: var(--ink);
+    font-family: Bahnschrift, "DIN Alternate", "Avenir Next", "Segoe UI", sans-serif;
+    font-size: 15px;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+  }
+  canvas#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  .chart {
+    position: fixed; top: 16px; left: 16px; bottom: 16px; width: 320px;
+    background: var(--paper); border-radius: 3px;
+    padding: 20px 20px 16px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  h1 { font-size: 27px; line-height: 1.08; font-weight: 600; font-stretch: 85%; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+  p { margin: 0; }
+  .lede { color: var(--ink-soft); }
+  section { border-top: 1px solid var(--rule); padding-top: 14px; }
+
+  .layers { display: grid; gap: 2px; }
+  .layers label { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 2px; cursor: pointer; }
+  .layers input { accent-color: var(--ink); margin: 0; }
+  .layers label:has(input:checked) { background: rgba(26, 33, 64, 0.1); font-weight: 600; }
+  .layers label:has(input:focus-visible) { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+  .ramp { height: 14px; border-radius: 2px; margin-top: 12px; }
+  .ticks { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-soft); margin-top: 3px; }
+  .best { margin-top: 10px; }
+  button {
+    font: inherit; color: var(--ink); background: none; border: 1px solid var(--ink);
+    border-radius: 2px; padding: 4px 10px; cursor: pointer;
+  }
+  button:hover { background: var(--ink); color: var(--paper); }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .best button { margin-top: 6px; }
+
+  .relief { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .relief input { flex: 1; accent-color: var(--ink); }
+
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0; }
+  dt { color: var(--ink-soft); }
+  dd { margin: 0; text-align: right; }
+  .where { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+  .hint { color: var(--ink-soft); }
+  #sites-note { font-size: 13px; margin-bottom: 8px; }
+  .actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-top: 10px; }
+  .actions .hint { font-size: 13px; }
+  dl + .hint { margin-top: 8px; font-size: 13px; }
+
+  .sites { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .sites button { width: 100%; text-align: left; border-color: var(--rule); padding: 8px 10px; }
+  .sites button:hover { background: rgba(26, 33, 64, 0.1); color: var(--ink); border-color: var(--ink); }
+  .sites .name { font-weight: 600; display: block; }
+  .sites .nums { font-size: 13px; color: var(--ink-soft); display: block; }
+
+  .notice { background: #fff6d6; border: 1px solid var(--sun); border-radius: 2px; padding: 10px 12px; }
+  .notice code { display: block; margin: 6px 0; font-family: Consolas, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
+  .source { font-size: 13px; color: var(--ink-soft); margin-top: auto; }
+  a { color: var(--ink); }
+  a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  canvas#scene:focus-visible { outline: 2px solid var(--paper); outline-offset: -4px; }
+  .view { position: fixed; top: 16px; right: 16px; display: flex; gap: 6px; align-items: stretch; }
+  .view button { background: var(--paper); border-color: var(--paper); min-width: 36px; }
+  .view button:hover { background: #fff; color: var(--ink); }
+  .view button[aria-pressed=true] { background: var(--ink); color: var(--paper); border-color: var(--paper); }
+  .view { flex-wrap: wrap; justify-content: flex-end; max-width: calc(100vw - 32px); }
+  .view button:focus-visible { outline: 2px solid #fff; }
+  .how { position: fixed; right: 16px; bottom: 14px; margin: 0; color: rgba(236, 231, 216, 0.75); font-size: 13px; pointer-events: none; text-align: right; }
+  .tag {
+    position: fixed; left: 0; top: 0; pointer-events: none; white-space: nowrap;
+    transform: translate(-50%, -100%); padding: 1px 7px; margin-top: -9px;
+    background: var(--paper); color: var(--ink); border-radius: 2px; font-size: 13px; font-weight: 600;
+  }
+  .tag::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 9px; background: var(--paper); }
+  .cursor {
+    position: fixed; left: 0; top: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+    border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px var(--ink); pointer-events: none;
+  }
+  dialog#analysis {
+    width: min(1180px, calc(100vw - 32px)); height: calc(100vh - 32px); max-width: none; max-height: none;
+    padding: 0; border: 0; border-radius: 3px; background: var(--paper); color: var(--ink); overflow: hidden;
+  }
+  dialog#analysis[open] { display: flex; flex-direction: column; }
+  dialog#analysis::backdrop { background: rgba(12, 16, 34, 0.7); }
+  dialog#analysis header { display: flex; align-items: center; gap: 16px; padding: 10px 14px 10px 20px; border-bottom: 1px solid var(--rule); }
+  dialog#analysis h2 { margin: 0; font-size: 18px; flex: 1; }
+  dialog#analysis iframe { flex: 1; width: 100%; border: 0; background: #f4f3ef; }
+  .actions a { cursor: pointer; }
+  [hidden] { display: none !important; }
+
+  /* narrow screens: map on top, chart underneath, no overlap */
+  @media (max-width: 720px) {
+    canvas#scene { inset: 0 0 auto 0; height: 52vh; }
+    .view { top: 8px; right: 8px; }
+    .how { display: none; }
+    .chart { top: 52vh; left: 0; right: 0; bottom: 0; width: auto; border-radius: 0; padding: 14px 16px; gap: 12px; }
+    h1 { font-size: 21px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="scene" tabindex="0" aria-label="3D view of the Moon's south pole. Use the list of sites and the point readout for the same information as text."></canvas>
+
+<div class="view" role="group" aria-label="Map view">
+  <button id="view-in" aria-label="Zoom in" title="Zoom in">+</button>
+  <button id="view-out" aria-label="Zoom out" title="Zoom out">−</button>
+  <button id="view-tilt">Look straight down</button>
+  <button id="view-flip" aria-pressed="false" title="Turn the picture half a turn: the Moon's north up, or the ground under you">Right-side-up view</button>
+  <button id="view-reset">Reset view</button>
+</div>
+
+<aside class="chart">
+  <header>
+    <h1>Lunar south pole exposure</h1>
+    <p class="lede">How much of the year each spot can see the Sun and the Earth, once the surrounding terrain is taken into account.</p>
+  </header>
+
+  <div class="notice" id="notice" hidden></div>
+
+  <section id="layer-section">
+    <h2>Colour the map by</h2>
+    <div class="layers" role="radiogroup" aria-label="Map layer">
+      <label><input type="radio" name="layer" value="sun" checked> Sunlight</label>
+      <label><input type="radio" name="layer" value="earth"> Earth in view</label>
+      <label><input type="radio" name="layer" value="dark"> Longest night</label>
+    </div>
+    <div class="ramp" id="ramp"></div>
+    <div class="ticks" id="ticks"></div>
+    <div class="best" id="best"></div>
+    <label class="relief">Relief <input type="range" id="relief" min="1" max="12" step="1" value="5"> <span id="relief-value">5×</span></label>
+  </section>
+
+  <section id="point-section" aria-live="polite">
+    <h2 id="point-title">Point under the cursor</h2>
+    <div id="readout"><p class="hint">Move over the coloured map to read a spot, click to keep it selected.</p></div>
+  </section>
+
+  <section>
+    <h2>Candidate sites</h2>
+    <p class="hint" id="sites-note" hidden></p>
+    <ul class="sites" id="sites"></ul>
+  </section>
+
+  <p><a href="../">Open the site dashboard</a> for one site's skyline, timeline and power.</p>
+
+  <p class="source" id="source">Terrain from NASA's LOLA elevation grid. Sun and Earth positions from JPL Horizons.</p>
+</aside>
+
+<dialog id="analysis" aria-labelledby="analysis-title">
+  <header>
+    <h2 id="analysis-title">Analysis</h2>
+    <a id="analysis-full" href="../">Open as a full page</a>
+    <button id="analysis-close">Back to the map</button>
+  </header>
+  <iframe id="analysis-frame" title="Analysis of the chosen point"></iframe>
+</dialog>
+
+<p class="how">Drag to move. Right-drag or Ctrl + drag to turn and tilt. Scroll to zoom.</p>
+
+<div id="tags"></div>
+<div class="cursor" id="cursor" hidden></div>
+
+<script>
+  // Opened straight from disk: browsers block the app's scripts and data, so say what to do.
+  if (location.protocol === 'file:') {
+    var n = document.getElementById('notice');
+    n.innerHTML = 'This page only works through a local web server. In the project folder run <code>python -m http.server 8000</code> then open <code>http://localhost:8000/web/</code>';
+    n.hidden = false;
+    document.getElementById('layer-section').hidden = true;
+    document.getElementById('point-section').hidden = true;
+  }
+</script>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

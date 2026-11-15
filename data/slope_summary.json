@@ -1,0 +1,47 @@
+[
+ {
+  "id": "shackleton_ridge",
+  "name": "Shackleton connecting ridge",
+  "lat": -89.439,
+  "lon": 222.856,
+  "baseline_m": 240.0,
+  "zone_radius_m": 1000.0,
+  "slope_limit_deg": 10.0,
+  "slope_at_site_deg": 1.87,
+  "zone_mean_deg": 8.38,
+  "zone_median_deg": 7.82,
+  "zone_p95_deg": 15.63,
+  "zone_max_deg": 18.19,
+  "zone_safe_pct": 65.2
+ },
+ {
+  "id": "malapert",
+  "name": "Malapert massif",
+  "lat": -85.9917,
+  "lon": 2.7953,
+  "baseline_m": 240.0,
+  "zone_radius_m": 1000.0,
+  "slope_limit_deg": 10.0,
+  "slope_at_site_deg": 1.96,
+  "zone_mean_deg": 5.37,
+  "zone_median_deg": 5.09,
+  "zone_p95_deg": 10.21,
+  "zone_max_deg": 11.8,
+  "zone_safe_pct": 92.8
+ },
+ {
+  "id": "south_pole",
+  "name": "South pole (reference)",
+  "lat": -90.0,
+  "lon": 0.0,
+  "baseline_m": 240.0,
+  "zone_radius_m": 1000.0,
+  "slope_limit_deg": 10.0,
+  "slope_at_site_deg": 8.92,
+  "zone_mean_deg": 14.93,
+  "zone_median_deg": 12.66,
+  "zone_p95_deg": 28.82,
+  "zone_max_deg": 31.51,
+  "zone_safe_pct": 41.2
+ }
+]
