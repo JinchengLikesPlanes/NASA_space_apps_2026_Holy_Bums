@@ -29,6 +29,7 @@
   h1 { font-size: 26px; margin: 0 0 4px; font-weight: 650; letter-spacing: -0.01em; }
   h2 { font-size: 17px; margin: 0 0 2px; font-weight: 600; }
   p.lead { margin: 0 0 20px; color: var(--text-2); max-width: 70ch; }
+  a { color: var(--accent); }
   p.note { margin: 0 0 10px; color: var(--text-2); font-size: 14px; max-width: 80ch; }
   section { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
             padding: 16px 18px; margin-bottom: 16px; }
@@ -75,7 +76,8 @@
 <main>
   <h1>Lunar Landing Site Navigator</h1>
   <p class="lead">Pick a landing site and a date to see whether the Sun (power) and Earth (direct radio link)
-    are above the real terrain, how long until that changes, and how the sites compare.</p>
+    are above the real terrain, how long until that changes, and how the sites compare.
+    To find promising spots first, <a href="web/">open the 3D map of the south pole</a>.</p>
 
   <div id="error"></div>
 
@@ -321,6 +323,18 @@ async function addCustom(ev) {          // ask the local server to run the pipel
   } finally { $("cGo").disabled = false; }
 }
 
+function openLinkedPoint() {         // the 3D map links here with ?lat=..&lon=.. in the address
+  const q = new URLSearchParams(location.search);
+  const lat = parseFloat(q.get("lat")), rawLon = parseFloat(q.get("lon"));
+  if (isNaN(lat) || isNaN(rawLon) || lat < -90 || lat > 90) return;
+  const lon = ((rawLon % 360) + 360) % 360;       // any longitude -> 0 to 360 east
+  const near = (a, b) => Math.abs(a - b) < 5e-5;
+  const known = state.sites.find(s => near(s.lat, lat) && near(s.lon, lon));
+  if (known) return setSite(known.id);            // already analysed: just open it
+  $("cLat").value = lat; $("cLon").value = lon; $("cName").value = q.get("name") || "";
+  $("custom").requestSubmit();                    // same as pressing "Analyse this point"
+}
+
 async function start() {
   await loadSummary();
   $("custom").onsubmit = addCustom;
@@ -337,6 +351,7 @@ async function start() {
   };
   state.id = state.sites[0].id;
   await render(true);
+  openLinkedPoint();
   $("timeline").addEventListener("click", ev => {       // click anywhere on the timeline to jump there
     const d = state.cache[state.id], ax = $("timeline")._fullLayout.xaxis;
     const px = ev.clientX - $("timeline").getBoundingClientRect().left - ax._offset;
