@@ -179,13 +179,14 @@
   // Fetch the three files from the data folder. Resolves to null if the skylines are not there.
   let loading = null;
   function load(base) {
+    const fresh = { cache: "no-cache" };      // always check for a newer copy of the data
     loading = loading || (async () => {
       try {
-        const map = await (await fetch(base + "exposure_map.json")).json();
+        const map = await (await fetch(base + "exposure_map.json", fresh)).json();
         if (!map.horizons) return null;
         const [bin, ref] = await Promise.all([
-          fetch(base + map.horizons.file).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }),
-          fetch(base + map.horizons.ref_site + "_ephemeris.json").then(r => r.json()),
+          fetch(base + map.horizons.file, fresh).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }),
+          fetch(base + map.horizons.ref_site + "_ephemeris.json", fresh).then(r => r.json()),
         ]);
         return build(map, new Int16Array(bin), ref);
       } catch { return null; }

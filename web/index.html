@@ -150,7 +150,7 @@
     </div>
     <div class="ramp" id="ramp"></div>
     <div class="ticks" id="ticks"></div>
-    <p class="hint" id="world-note" hidden>Outside the south polar map, in muted colours, the Moon is treated as a smooth ball: hills and crater walls are ignored.</p>
+    <p class="hint" id="world-note" hidden></p>
     <div class="best" id="best"></div>
     <label class="relief">Relief <input type="range" id="relief" min="1" max="12" step="1" value="5"> <span id="relief-value">5×</span></label>
   </section>
@@ -196,6 +196,7 @@
   }
 </script>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
-<script type="module" src="./app.js"></script>
+<!-- change the ?v= value whenever app.js changes, so browsers do not keep running an old copy -->
+<script type="module" src="./app.js?v=20261115b"></script>
 </body>
 </html>

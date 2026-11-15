@@ -183,8 +183,10 @@ scene.add(moon);
 let map = null;          // exposure_map.json
 let cap = null;          // coloured terrain mesh
 let globe = null;
-let world = null;        // global_map.json: the whole Moon as a smooth ball
+let world = null;        // global_map.json: values for the whole Moon, with coarse terrain or as a smooth ball
+let worldHeights = null; // global_heights.bin: ground heights used to shade the globe (Int16Array), or null
 let globeTex = null;     // the globe's colours, one pixel per cell of `world`
+let shadeTex = null;     // the globe's terrain shading
 let layer = 'sun';
 let relief = 5;
 const tags = [];         // site labels: { el, lat, lon }
@@ -208,33 +210,87 @@ function buildGlobe(cutKm) {
 
 const MUTED = new THREE.Color(0x8f8c86);
 
-// Colour the globe by the current layer, from the whole-Moon (smooth ball) values.
-// The values form a longitude/latitude grid, which is exactly the layout of a sphere texture.
+// The 256 colours of a layer's ramp as sRGB bytes, so painting millions of pixels stays quick.
+function rampBytes(L, muted) {
+  const out = new Uint8Array(256 * 3), c = {};
+  for (let i = 0; i < 256; i++) {
+    const col = rampColour(L.ramp, i / 255);
+    if (muted) col.lerp(MUTED, 0.5);
+    col.getRGB(c, THREE.SRGBColorSpace);
+    out[i * 3] = Math.round(c.r * 255); out[i * 3 + 1] = Math.round(c.g * 255); out[i * 3 + 2] = Math.round(c.b * 255);
+  }
+  return out;
+}
+
+// The globe is drawn from two textures multiplied together. Both are longitude/latitude grids,
+// which is exactly the layout of a sphere texture.
+//   colour: one pixel per map cell, from the whole-Moon values for the current layer. Small, so
+//           switching layers is instant. Without terrain (smooth ball) the colours are muted,
+//           to keep them apart from the terrain map.
+//   shade:  light and dark from the terrain heights, so hills and craters show. Large, and
+//           repainted only when the Relief slider changes.
+const SHADE_MAX = 1.4;       // brightest shade stored (1 = flat ground)
+
 function paintGlobe() {
   if (!world || !globe) return;
   const L = LAYERS[layer], values = world[L.key], count = world.n_lon * world.n_lat;
-  const px = new Uint8Array(count * 4), c = {};
+  const table = rampBytes(L, !world.terrain);
+  const px = globeTex ? globeTex.image.data : new Uint8Array(count * 4);
   for (let i = 0; i < count; i++) {
-    // half-way to grey: these values ignore terrain, and the muted look keeps the terrain map in front
-    rampColour(L.ramp, L.scale(values[i])).lerp(MUTED, 0.5).getRGB(c, THREE.SRGBColorSpace);
-    px[i * 4] = Math.round(c.r * 255); px[i * 4 + 1] = Math.round(c.g * 255); px[i * 4 + 2] = Math.round(c.b * 255); px[i * 4 + 3] = 255;
+    const c = Math.round(Math.min(Math.max(L.scale(values[i]), 0), 1) * 255) * 3;
+    px[i * 4] = table[c]; px[i * 4 + 1] = table[c + 1]; px[i * 4 + 2] = table[c + 2]; px[i * 4 + 3] = 255;
   }
   if (!globeTex) {
-    globeTex = new THREE.DataTexture(px, world.n_lon, world.n_lat, THREE.RGBAFormat);
+    globeTex = globeTexture(px, world.n_lon, world.n_lat);
     globeTex.colorSpace = THREE.SRGBColorSpace;
-    globeTex.magFilter = THREE.LinearFilter;         // blend between cells
-    globeTex.minFilter = THREE.LinearFilter;
-    globeTex.wrapS = THREE.RepeatWrapping;           // longitude wraps around
     globe.material.dispose();
     globe.material = new THREE.MeshBasicMaterial({ map: globeTex });   // unlit, so colours match the legend
-  } else {
-    globeTex.image.data.set(px);
+    shadeGlobe();
   }
+  globeTex.needsUpdate = true;
+}
+
+// Light and shade from the terrain: how squarely each patch of ground faces a light in the
+// north-west, 45 degrees up. The Relief slider makes the slopes steeper, so the shading deeper.
+function shadeGlobe() {
+  if (!worldHeights || !globeTex) return;
+  const h = worldHeights, W = world.heights.n_lon, H = world.heights.n_lat, moonM = 1737400, z = relief;
+  const px = shadeTex ? shadeTex.image.data : new Uint8Array(W * H * 4);
+  const dy = moonM * Math.PI / H;                                                         // metres between rows
+  for (let j = 0; j < H; j++) {
+    const lat = -90 + (j + 0.5) * 180 / H;
+    const dx = moonM * Math.max(Math.cos(lat * Math.PI / 180), 0.05) * 2 * Math.PI / W;   // metres between columns
+    const up = Math.min(j + 1, H - 1) * W, down = Math.max(j - 1, 0) * W, row = j * W;
+    for (let i = 0; i < W; i++) {
+      const zx = (h[row + (i + 1) % W] - h[row + (i + W - 1) % W]) / (2 * dx) * z;        // slope towards the east
+      const zy = (h[up + i] - h[down + i]) / (2 * dy) * z;                                // slope towards the north
+      const facing = (0.5 * zx - 0.5 * zy + 0.7071) / (Math.sqrt(zx * zx + zy * zy + 1) * 0.7071);
+      const light = 0.3 + 0.7 * Math.min(Math.max(facing, 0), 1.55);                      // 1 on flat ground
+      const o = (row + i) * 4;
+      px[o] = px[o + 1] = px[o + 2] = Math.min(light / SHADE_MAX, 1) * 255; px[o + 3] = 255;
+    }
+  }
+  if (!shadeTex) {
+    shadeTex = globeTexture(px, W, H);
+    shadeTex.generateMipmaps = true;                       // smooth when the Moon is small on screen
+    shadeTex.minFilter = THREE.LinearMipmapLinearFilter;
+    globe.material.lightMap = shadeTex;
+    globe.material.lightMapIntensity = Math.PI * SHADE_MAX;   // three.js divides light maps by pi
+    globe.material.needsUpdate = true;
+  }
+  shadeTex.needsUpdate = true;
+}
+
+function globeTexture(px, width, height) {
+  const tex = new THREE.DataTexture(px, width, height, THREE.RGBAFormat);
+  tex.magFilter = THREE.LinearFilter;          // blend between pixels
+  tex.minFilter = THREE.LinearFilter;
+  tex.wrapS = THREE.RepeatWrapping;            // longitude wraps around
   // the sphere stops short of the south pole (the hole for the terrain map), so the texture must too
   const shown = globe.geometry.parameters.thetaLength / Math.PI;
-  globeTex.repeat.set(1, shown);
-  globeTex.offset.set(0, 1 - shown);
-  globeTex.needsUpdate = true;
+  tex.repeat.set(1, shown);
+  tex.offset.set(0, 1 - shown);
+  return tex;
 }
 
 // Index of the whole-Moon cell containing a lat/lon.
@@ -410,7 +466,7 @@ function showPoint(k) {
   ], pinned !== null, link, () => showPoint(k));
 }
 
-// A point anywhere else on the Moon, from the smooth-ball values (terrain ignored).
+// A point anywhere else on the Moon, from the whole-Moon values (coarse terrain, or a smooth ball).
 function showGlobePoint(lat, lon) {
   const c = worldCell(lat, lon), east = (lon + 360) % 360;
   const link = (map && map.horizons) ? analyseLink(lat.toFixed(2), east.toFixed(2), 'Analyse this point', place(lat, east)) : null;
@@ -418,7 +474,7 @@ function showGlobePoint(lat, lon) {
     ['Sunlight', `${world.sun_pct[c].toFixed(1)}% of the year`],
     ['Earth in view', `${world.earth_pct[c].toFixed(1)}% of the year`],
     ['Longest night', days(world.longest_dark_h[c])],
-    ['Terrain', 'ignored (smooth Moon)'],
+    world.terrain ? ['Height', `${world.height_m[c].toLocaleString('en')} m`] : ['Terrain', 'ignored (smooth Moon)'],
   ], pinnedGlobe !== null, link, () => showGlobePoint(lat, lon));
 }
 
@@ -698,11 +754,13 @@ function frame(now) {
 
 // ---------- start ----------
 
-async function getJson(name) {
-  const res = await fetch(DATA + name);
+// 'no-cache' makes the browser check for a newer copy every time, so regenerated data shows up on reload
+async function getFile(name) {
+  const res = await fetch(DATA + name, { cache: 'no-cache' });
   if (!res.ok) throw new Error(`${name}: ${res.status}`);
-  return res.json();
+  return res;
 }
+const getJson = async name => (await getFile(name)).json();
 
 async function start() {
   // start below the pole, tilted 40 degrees off straight-down, far enough to see the whole map
@@ -733,10 +791,21 @@ async function start() {
   }
 
   // server.py answers /api/site with JSON even when no point is given; a plain file server does not
-  fetch('../api/site').then(r => { canAnalyse = (r.headers.get('content-type') || '').includes('json'); }).catch(() => {});
+  fetch('../api/site', { cache: 'no-store' }).then(r => { canAnalyse = (r.headers.get('content-type') || '').includes('json'); }).catch(() => {});
 
   world = await getJson('global_map.json').catch(() => null);        // optional: made by global_map.py
-  $('world-note').hidden = !world;
+  if (world && world.heights) {
+    try {
+      const bin = new Int16Array(await (await getFile(world.heights.file)).arrayBuffer());
+      if (bin.length === world.heights.n_lon * world.heights.n_lat) worldHeights = bin;
+    } catch { /* no shading without the heights */ }
+  }
+  if (world) {
+    $('world-note').textContent = world.terrain
+      ? `Outside the south polar map the terrain is much coarser: a ${world.grid_pixel_km} km elevation grid, with points ${world.step_deg}° apart.`
+      : 'Outside the south polar map, in muted colours, the Moon is treated as a smooth ball: hills and crater walls are ignored.';
+    $('world-note').hidden = false;
+  }
   buildGlobe(map ? map.radius_km - 2 * map.spacing_km : 0);
   if (map) {
     buildCap();
@@ -758,6 +827,7 @@ async function start() {
     $('relief-value').textContent = `${relief}×`;
     if (cap) shapeCap();
   });
+  $('relief').addEventListener('change', shadeGlobe);     // on release: reshading the globe takes a moment
 
   requestAnimationFrame(frame);
 }
