@@ -246,24 +246,50 @@ function showPoint(k) {
     $('readout').append(Object.assign(document.createElement('p'), { className: 'hint', textContent: 'Click the map to keep a spot selected.' }));
     return;
   }
-  // The dashboard reads lat and lon from the address. A candidate site is already analysed
-  // and opens straight away; any other point needs pipeline/server.py to run the analysis.
+  // The link opens the dashboard for this point in a pop-up panel over the map. A candidate site
+  // is already analysed; any other map point is estimated in the browser from the saved skylines.
+  const analyse = (aLat, aLon, text, title) => {
+    const a = Object.assign(document.createElement('a'), { href: `../?lat=${aLat}&lon=${aLon}`, textContent: text });
+    a.addEventListener('click', ev => {             // ctrl/middle click still opens the full page in a new tab
+      if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+      ev.preventDefault();
+      openAnalysis(aLat, aLon, title);
+    });
+    return a;
+  };
   const release = Object.assign(document.createElement('button'), { textContent: 'Release' });
   release.addEventListener('click', () => { pinned = null; pinnedSite = null; hover = null; showPoint(k); });
   const actions = Object.assign(document.createElement('p'), { className: 'actions' });
   if (pinnedSite) {
-    actions.append(Object.assign(document.createElement('a'), {
-      href: `../?lat=${pinnedSite.lat}&lon=${pinnedSite.lon}`, textContent: `Open ${pinnedSite.name} in the dashboard` }));
+    actions.append(analyse(pinnedSite.lat, pinnedSite.lon, `Analyse ${pinnedSite.name}`, pinnedSite.name));
   } else if (canAnalyse || map.horizons) {       // map.horizons: the dashboard can estimate it in the browser
-    actions.append(Object.assign(document.createElement('a'), {
-      href: `../?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`, textContent: 'Analyse this point in the dashboard' }));
+    actions.append(analyse(lat.toFixed(4), lon.toFixed(4), 'Analyse this point', place(lat, lon)));
   } else {
     actions.append(Object.assign(document.createElement('span'), { className: 'hint',
-      textContent: 'Analysing a new point in the dashboard needs a map made by the latest exposure_map.py, or the site started with pipeline/server.py.' }));
+      textContent: 'Analysing a new point needs a map made by the latest exposure_map.py, or the site started with pipeline/server.py.' }));
   }
   actions.append(release);
   $('readout').append(actions);
 }
+
+// Show the dashboard for one coordinate in a panel over the map. The dashboard page is loaded
+// once and then asked for each new point, so later points appear without a page load.
+function openAnalysis(lat, lon, title) {
+  const dialog = $('analysis'), frame = $('analysis-frame');
+  $('analysis-title').textContent = title;
+  $('analysis-full').href = `../?lat=${lat}&lon=${lon}`;
+  if (!dialog.open) dialog.showModal();
+  const inside = frame.contentWindow;
+  if (frame.dataset.loaded && inside && typeof inside.openPoint === 'function') {
+    inside.openPoint(Number(lat), Number(lon));
+    inside.scrollTo(0, 0);
+  } else {
+    frame.addEventListener('load', () => { frame.dataset.loaded = '1'; }, { once: true });
+    frame.src = `../?lat=${lat}&lon=${lon}&embed=1`;
+  }
+}
+$('analysis-close').addEventListener('click', () => $('analysis').close());
+$('analysis').addEventListener('click', ev => { if (ev.target === $('analysis')) $('analysis').close(); });   // click outside the panel
 
 // Keep one grid cell selected: the readout and ring stay on it until released.
 // site is given when the cell was chosen through a candidate site's button.

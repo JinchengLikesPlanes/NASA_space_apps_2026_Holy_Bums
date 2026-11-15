@@ -27,6 +27,8 @@
   body { margin: 0; background: var(--page); color: var(--text);
          font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   main { max-width: 1120px; margin: 0 auto; padding: 24px 20px 48px; }
+  body.embed h1, body.embed p.lead { display: none; }
+  body.embed main { padding-top: 16px; }
   h1 { font-size: 26px; margin: 0 0 4px; font-weight: 650; letter-spacing: -0.01em; }
   h2 { font-size: 17px; margin: 0 0 2px; font-weight: 600; }
   p.lead { margin: 0 0 20px; color: var(--text-2); max-width: 70ch; }
@@ -358,21 +360,30 @@ async function addCustom(ev) {          // ask the local server to run the pipel
   } finally { $("cGo").disabled = false; state.linked = null; }
 }
 
-async function openLinkedPoint() {   // the 3D map links here with ?lat=..&lon=.. in the address
+function openLinkedPoint() {         // the 3D map links here with ?lat=..&lon=.. in the address
   const q = new URLSearchParams(location.search);
-  const lat = parseFloat(q.get("lat")), rawLon = parseFloat(q.get("lon"));
+  return openPoint(parseFloat(q.get("lat")), parseFloat(q.get("lon")), q.get("name") || "");
+}
+
+// Show the analysis for one coordinate. Also called directly by the 3D map, which keeps this
+// page open in a pop-up panel and asks for a new point each time one is chosen.
+async function openPoint(lat, rawLon, name = "") {
   if (isNaN(lat) || isNaN(rawLon) || lat < -90 || lat > 90) return;
+  $("error").style.display = "none";
   const lon = ((rawLon % 360) + 360) % 360;       // any longitude -> 0 to 360 east
   const near = (a, b) => Math.abs(a - b) < 5e-5;
   const known = state.sites.find(s => near(s.lat, lat) && near(s.lon, lon));
   if (known) return setSite(known.id);            // already analysed: just open it
   if (await addEstimate(lat, lon)) return;        // on the 3D map: instant estimate in the browser
-  $("cLat").value = lat; $("cLon").value = lon; $("cName").value = q.get("name") || "";
+  $("cLat").value = lat; $("cLon").value = lon; $("cName").value = name;
   state.linked = `latitude ${lat}, longitude ${lon}°E`;
   $("custom").requestSubmit();                    // same as pressing "Analyse this point"
 }
 
 async function start() {
+  // inside the 3D map's pop-up panel: drop the page title and intro, the panel has its own
+  if (new URLSearchParams(location.search).has("embed")) document.body.classList.add("embed");
+  window.openPoint = openPoint;
   await loadSummary();
   $("custom").onsubmit = addCustom;
   $("sites").onclick = e => e.target.dataset.id && setSite(e.target.dataset.id);

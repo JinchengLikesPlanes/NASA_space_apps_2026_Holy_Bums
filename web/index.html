@@ -90,6 +90,16 @@
     position: fixed; left: 0; top: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px;
     border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px var(--ink); pointer-events: none;
   }
+  dialog#analysis {
+    width: min(1180px, calc(100vw - 32px)); height: calc(100vh - 32px); max-width: none; max-height: none;
+    padding: 0; border: 0; border-radius: 3px; background: var(--paper); color: var(--ink); overflow: hidden;
+  }
+  dialog#analysis[open] { display: flex; flex-direction: column; }
+  dialog#analysis::backdrop { background: rgba(12, 16, 34, 0.7); }
+  dialog#analysis header { display: flex; align-items: center; gap: 16px; padding: 10px 14px 10px 20px; border-bottom: 1px solid var(--rule); }
+  dialog#analysis h2 { margin: 0; font-size: 18px; flex: 1; }
+  dialog#analysis iframe { flex: 1; width: 100%; border: 0; background: #f4f3ef; }
+  .actions a { cursor: pointer; }
   [hidden] { display: none !important; }
 
   /* narrow screens: map on top, chart underneath, no overlap */
@@ -139,6 +149,15 @@
 
   <p class="source" id="source">Terrain from NASA's LOLA elevation grid. Sun and Earth positions from JPL Horizons.</p>
 </aside>
+
+<dialog id="analysis" aria-labelledby="analysis-title">
+  <header>
+    <h2 id="analysis-title">Analysis</h2>
+    <a id="analysis-full" href="../">Open as a full page</a>
+    <button id="analysis-close">Back to the map</button>
+  </header>
+  <iframe id="analysis-frame" title="Analysis of the chosen point"></iframe>
+</dialog>
 
 <div id="tags"></div>
 <div class="cursor" id="cursor" hidden></div>
