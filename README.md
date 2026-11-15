@@ -18,6 +18,7 @@ There are two pages:
 - **3D map** (`web/`): the south polar terrain coloured by sunlight, Earth
   visibility or longest night, for every point on a grid. "Whole Moon" shows the
   rest of the Moon too, from a much coarser whole-Moon elevation grid.
+  The six Apollo landing sites are marked for comparison.
 
 The elevation grids are too large for GitHub, so download them once (111 MB,
 saved in a folder named `lola` next to the repo folder):

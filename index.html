@@ -326,10 +326,11 @@ function showSites() {                  // sites from summary.json, then quick e
 
 // Quick answer for a point on the 3D map, worked out in the browser by web/estimate.js from the
 // skylines that pipeline/exposure_map.py saved. Needs no server. Returns null if it cannot be done.
-async function addEstimate(lat, lon) {
+async function addEstimate(lat, lon, name = "") {      // name: what to call the point, if it has one
   const est = window.MapEstimate ? await MapEstimate.load("data/") : null;
   const s = est && (est.site(lat, lon) || await est.anywhere(lat, lon));   // on the polar map, else the coarse whole-Moon terrain
   if (!s) return null;
+  if (name) s.row.name = name;
   const sunUp = s.vis.sun_fraction.map(f => f >= 0.5), earthUp = s.vis.earth_visible.map(v => v === 1);
   state.cache[s.row.id] = { eph: s.eph, hor: s.hor, vis: s.vis, t: s.eph.time_utc.map(parseTime),
                             sunUp, earthUp, both: sunUp.map((v, k) => v && earthUp[k]) };
@@ -382,7 +383,7 @@ async function openPoint(lat, rawLon, name = "") {
   const near = (a, b) => Math.abs(a - b) < 5e-5;
   const known = state.sites.find(s => near(s.lat, lat) && near(s.lon, lon));
   if (known) return setSite(known.id);            // already analysed: just open it
-  if (await addEstimate(lat, lon)) return;        // on the 3D map: instant estimate in the browser
+  if (await addEstimate(lat, lon, name)) return;  // on the 3D map: instant estimate in the browser
   $("cLat").value = lat; $("cLon").value = lon; $("cName").value = name;
   state.linked = `latitude ${lat}, longitude ${lon}°E`;
   $("custom").requestSubmit();                    // same as pressing "Analyse this point"
