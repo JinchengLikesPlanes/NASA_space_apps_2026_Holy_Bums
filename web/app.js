@@ -80,11 +80,12 @@ const camera = new THREE.PerspectiveCamera(35, 1, 0.005, 50);
 // can tilt down towards the horizon and see the relief, not only look straight down.
 const SOUTH_POLE = new THREE.Vector3(0, -1, 0);
 
-// Two ways up. Normally south is "up" for the camera, so the ground is under you like a map.
-// Flipped, the Moon's north is up, as on a globe: you look up at the pole from underneath
-// and the terrain hangs down. Same camera position, picture turned half a turn.
-let flipped = false;
-try { flipped = localStorage.getItem('view-flipped') === '1'; } catch { /* storage unavailable */ }
+// Two ways up, same camera position, picture turned half a turn.
+// flipped (the default, "upside down"): the Moon's north is up, as on a globe. You look up at
+//   the pole from underneath and the terrain hangs down.
+// not flipped ("right side up"): south is "up" for the camera, so the ground is under you like a map.
+let flipped = true;
+try { flipped = localStorage.getItem('view-way-up') !== 'ground'; } catch { /* storage unavailable */ }
 
 // OrbitControls reads the camera's "up" once, when it is created, so flipping builds a new one.
 let controls = null;
@@ -106,9 +107,9 @@ function makeControls() {
   // the wheel zooms towards the cursor. One finger moves, two fingers zoom and turn.
   controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
   controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
-  // Unflipped, a drag slides along the ground. Flipped, that would run backwards (the controls
-  // would take north as "up"), so the drag follows the screen and keepPivotOnGround puts the
-  // pivot back on the surface.
+  // Right side up, a drag slides along the ground. Flipped, that would run backwards (the
+  // controls take north as "up"), so the drag follows the screen and keepPivotOnGround puts
+  // the pivot back on the surface.
   controls.screenSpacePanning = flipped;
   controls.keyPanSpeed = 30;
   controls.listenToKeyEvents(canvas);      // arrow keys move the view when the map has focus
@@ -117,14 +118,14 @@ makeControls();
 
 function flipView() {
   flipped = !flipped;
-  try { localStorage.setItem('view-flipped', flipped ? '1' : '0'); } catch { /* storage unavailable */ }
+  try { localStorage.setItem('view-way-up', flipped ? 'north' : 'ground'); } catch { /* storage unavailable */ }
   flight = null;
   makeControls();
   showFlip();
 }
 function showFlip() {
-  $('view-flip').textContent = flipped ? 'Ground-down view' : 'Upside-down view';
-  $('view-flip').setAttribute('aria-pressed', String(flipped));
+  $('view-flip').textContent = flipped ? 'Right-side-up view' : 'Upside-down view';
+  $('view-flip').setAttribute('aria-pressed', String(!flipped));
 }
 
 // In the helpers below a view is described from the Moon's north (+Y), so 180 degrees is straight down on the pole.
