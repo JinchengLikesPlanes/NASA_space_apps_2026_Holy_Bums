@@ -18,7 +18,14 @@ There are two pages:
 - **3D map** (`web/`): the south polar terrain coloured by sunlight, Earth
   visibility or longest night, for every point on a grid.
 
-With the LOLA grids in a folder named `lola` next to the repo folder:
+The elevation grids are too large for GitHub, so download them once (111 MB,
+saved in a folder named `lola` next to the repo folder):
+
+```
+python pipeline/fetch_lola.py
+```
+
+Add `--fine` to also get the 20 m grid (1.8 GB) for sharper skylines. Then:
 
 ```
 python pipeline/server.py
