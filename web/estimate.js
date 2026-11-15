@@ -9,12 +9,14 @@
 // It is a quick estimate: the nearest point on the map's grid, the 120 m terrain grid,
 // and a skyline sampled every 2 degrees. pipeline/server.py gives the detailed answer.
 //
-// Anywhere else on the Moon it can only treat the ground as a smooth ball (a flat horizon),
-// like pipeline/global_map.py: fair where the Sun climbs high, not near the poles.
+// Anywhere else on the Moon it works out the skyline itself, from the whole-Moon heights that
+// pipeline/global_map.py saved for shading the globe (data/global_heights.bin, 3.8 km between
+// points). That is far coarser than the polar map: big crater rims and mountains show, small
+// hills do not. Without that file it falls back to a smooth ball (a flat horizon).
 //
 // Use:  const est = await MapEstimate.load("data/");   // null if the skylines are not there
 //       const site = est.site(-88.5, 45);               // null if the point is off the polar map
-//       const site = est.smooth(0.67, 23.47);           // any point, terrain ignored
+//       const site = await est.anywhere(0.67, 23.47);   // any point: coarse terrain, or smooth
 //       site.row, site.eph, site.hor, site.vis          // same shapes as the pipeline's files
 (function (root) {
   const R = 1737400;            // lunar reference radius, metres
@@ -61,7 +63,43 @@
   }
   const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
 
-  function build(map, skylines, ref) {
+  // Skyline around a point from a whole-Moon grid of heights (rows from the south, columns from
+  // 180 W). The same method as pipeline/horizon_profile.py: walk outward along each direction,
+  // look up the ground height at each step, keep the steepest angle seen. Returns the skyline in
+  // hundredths of a degree, one value per direction, and the ground height at the point.
+  const REACH_M = 100e3;        // how far out to look for blocking terrain
+  function skylineFromHeights(heights, W, H, lat, lon, dirs) {
+    const ppd = W / 360, pix = R * rad(1 / ppd);
+    const height = (la, lo) => {                    // blend of the four nearest grid points
+      const row = Math.min(Math.max((la + 90) * ppd - 0.5, 0), H - 1), col = ((((lo + 180) % 360) + 360) % 360) * ppd - 0.5;
+      const r0 = Math.min(Math.floor(row), H - 2), cf = Math.floor(col), fr = row - r0, fc = col - cf;
+      const c0 = ((cf % W) + W) % W, c1 = (c0 + 1) % W, a = r0 * W, b = a + W;
+      return heights[a + c0] * (1 - fr) * (1 - fc) + heights[a + c1] * (1 - fr) * fc + heights[b + c0] * fr * (1 - fc) + heights[b + c1] * fr * fc;
+    };
+    const steps = [];                               // finer close in, coarser far out
+    for (let d = pix / 2; d < 2e3; d += pix / 2) steps.push(d);
+    for (let d = 2e3; d < 20e3; d += pix) steps.push(d);
+    for (let d = 20e3; d < REACH_M; d += 2 * pix) steps.push(d);
+    const ground = height(lat, lon), eye = R + ground + MAST_M;
+    const p1 = rad(lat), l1 = rad(lon), sky = new Int16Array(dirs);
+    for (let k = 0; k < dirs; k++) {
+      const a = rad(k * 360 / dirs);
+      let best = -90;
+      for (const d of steps) {
+        const th = d / R;                           // angle at the Moon's centre
+        const sinP2 = Math.sin(p1) * Math.cos(th) + Math.cos(p1) * Math.sin(th) * Math.cos(a);
+        const p2 = deg(Math.asin(Math.max(-1, Math.min(1, sinP2))));
+        const l2 = deg(l1 + Math.atan2(Math.sin(a) * Math.sin(th) * Math.cos(p1), Math.cos(th) - Math.sin(p1) * sinP2));
+        const far = R + height(p2, l2);
+        const el = deg(Math.atan2(far * Math.cos(th) - eye, far * Math.sin(th)));
+        if (el > best) best = el;
+      }
+      sky[k] = Math.round(best * 100);
+    }
+    return { sky, ground: Math.round(ground) };
+  }
+
+  function build(map, skylines, ref, world, loadHeights) {
     const H = map.horizons, n = map.n, dirs = H.directions, step = H.az_step_deg;
     // which block of the skyline file belongs to each grid cell (-1 = off the map)
     const slot = new Int32Array(n * n).fill(-1);
@@ -114,6 +152,23 @@
       const ns = lat < 0 ? "S" : "N";
       return analyse(lat, lon, flat, 0,
         { id: `moon_${lat.toFixed(2)}_${lon.toFixed(2)}`, name: `Smooth Moon ${Math.abs(lat).toFixed(2)}°${ns}, ${lon.toFixed(1)}°E`, estimate: "smooth", terrain: "smooth" });
+    }
+
+    // Any point on the Moon, with the skyline worked out from the whole-Moon heights.
+    function coarse(lat, lon, heights) {
+      if (!(lat >= -90 && lat <= 90) || !isFinite(lon)) return null;
+      lon = ((lon % 360) + 360) % 360;
+      lat = Math.min(Math.max(lat, -89.9999), 89.9999);
+      const { sky, ground } = skylineFromHeights(heights, world.heights.n_lon, world.heights.n_lat, lat, lon, dirs);
+      const ns = lat < 0 ? "S" : "N";
+      return analyse(lat, lon, sky, ground,
+        { id: `moon_${lat.toFixed(2)}_${lon.toFixed(2)}`, name: `Moon point ${Math.abs(lat).toFixed(2)}°${ns}, ${lon.toFixed(1)}°E`, estimate: "coarse", terrain: "lola" });
+    }
+
+    // Any point on the Moon: coarse terrain if the whole-Moon heights can be loaded, else smooth.
+    async function anywhere(lat, lon) {
+      const heights = world && world.heights && loadHeights ? await loadHeights() : null;
+      return heights ? coarse(lat, lon, heights) : smooth(lat, lon);
     }
 
     // sky: the skyline in hundredths of a degree, one value per direction. ground: height in metres.
@@ -173,7 +228,7 @@
         power_fixed_w_m2: fixed.map(v => round(v, 1)), power_flat_w_m2: flat.map(v => round(v, 1)) };
       return { row, eph, hor, vis };
     }
-    return { site, smooth, cellAt, cellLatLon, spacing_km: map.spacing_km, az_step_deg: step };
+    return { site, smooth, coarse, anywhere, cellAt, cellLatLon, spacing_km: map.spacing_km, az_step_deg: step };
   }
 
   // Fetch the three files from the data folder. Resolves to null if the skylines are not there.
@@ -188,7 +243,14 @@
           fetch(base + map.horizons.file, fresh).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }),
           fetch(base + map.horizons.ref_site + "_ephemeris.json", fresh).then(r => r.json()),
         ]);
-        return build(map, new Int16Array(bin), ref);
+        // the whole-Moon map is optional; its heights file is large, so it is fetched on first use
+        const world = await fetch(base + "global_map.json", fresh).then(r => (r.ok ? r.json() : null)).catch(() => null);
+        let heights = null;
+        const loadHeights = () => (heights = heights || fetch(base + world.heights.file, fresh)
+          .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+          .then(b => { const h = new Int16Array(b); return h.length === world.heights.n_lon * world.heights.n_lat ? h : null; })
+          .catch(() => null));
+        return build(map, new Int16Array(bin), ref, world, loadHeights);
       } catch { return null; }
     })();
     return loading;
