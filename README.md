@@ -32,13 +32,19 @@ python pipeline/server.py
 ```
 
 Then open http://localhost:8000 for the dashboard and http://localhost:8000/web/
-for the 3D map. Without the LOLA grids, `python -m http.server 8000` in the repo
-folder serves both pages, but the dashboard cannot analyse new points.
+for the 3D map.
+
+Without the LOLA grids, `python -m http.server 8000` in the repo folder serves both
+pages. Points on the 3D map still open in the dashboard as a quick estimate worked
+out in the browser (`web/estimate.js`); only the detailed analysis of a typed-in
+coordinate needs `server.py`.
 
 Opening the HTML files directly from disk will not work, because the pages load
 their data over HTTP.
 
-The 3D map's colours need `data/exposure_map.json`. To make it, run from `pipeline/`:
+The 3D map's colours need `data/exposure_map.json`, and analysing a clicked map
+point in the browser (no server, no LOLA files) needs `data/exposure_horizons.bin`.
+Both come from one command, run from `pipeline/`, and are committed to the repo:
 
 ```
 python exposure_map.py path\to\LDEM_75S_120M.LBL

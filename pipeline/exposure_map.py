@@ -4,7 +4,10 @@ Usage:  python exposure_map.py path\\to\\LDEM_75S_120M.LBL [radius_km] [spacing_
         radius_km   how far from the pole to map (default 150, about 85 S)
         spacing_km  distance between mapped points (default 2)
 Needs:  ../data/malapert_ephemeris.json  (from fetch_ephemeris.py)
-Output: ../data/exposure_map.json, read by the web app in ../web
+Output: ../data/exposure_map.json       the map values, read by the 3D page in ../web
+        ../data/exposure_horizons.bin   the skyline at every mapped point, which lets the
+                                        dashboard work out any map point in the browser
+                                        (web/estimate.js) with no server and no LOLA files
 
 For each point on a square grid centred on the pole it stores
     sun_pct         average share of the Sun's disc above the terrain over the year
@@ -100,12 +103,13 @@ def point_exposure(dem, sky, lat, lon):
     """Exposure numbers for one point. lat/lon in degrees."""
     lat = max(lat, -89.9999)                      # azimuth is undefined exactly at the pole
     haz, hel, ground, _ = horizon_profile.horizon(dem, lat, lon)
+    hel = np.round(hel, 2)                        # the precision the skyline is saved at
     az, el = sky.sun(lat, lon)
     frac = sun_fraction(az, el, haz, hel)
     az, el = sky.earth(lat, lon, ground + MAST_M)
     earth = el > np.interp(az, haz, hel, period=360)
     return {"height_m": ground, "sun_pct": 100 * frac.mean(), "earth_pct": 100 * earth.mean(),
-            "longest_dark_h": longest_false_run(frac > 0)}
+            "longest_dark_h": longest_false_run(frac > 0), "horizon_deg": hel}
 
 
 def grid_lat_lon(x_m, y_m):
@@ -136,6 +140,7 @@ def main():
     todo = [(j, i) for j in range(n) for i in range(n)
             if np.hypot(axis[i], axis[j]) <= radius_km * 1000.0]
     print(f"{len(todo)} points, {spacing_km:g} km apart, out to {radius_km:g} km from the pole")
+    skylines = np.zeros((len(todo), int(round(360 / AZ_STEP))), dtype="<i2")   # hundredths of a degree
     start = time.time()
     for done, (j, i) in enumerate(todo, 1):
         lat, lon = grid_lat_lon(axis[i], axis[j])
@@ -144,6 +149,7 @@ def main():
         grids["earth_pct"][j * n + i] = round(res["earth_pct"], 1)
         grids["longest_dark_h"][j * n + i] = res["longest_dark_h"]
         grids["height_m"][j * n + i] = round(res["height_m"])
+        skylines[done - 1] = np.rint(res["horizon_deg"] * 100)
         if done % 500 == 0 or done == len(todo):
             rate = done / (time.time() - start)
             print(f"  {done}/{len(todo)}  about {(len(todo) - done) / rate / 60:.1f} min left")
@@ -158,10 +164,19 @@ def main():
         "moon_radius_km": R / 1000, "mast_m": MAST_M,
         "period": [sky.time_utc[0], sky.time_utc[-1]],
         "terrain": True,
+        "horizons": {
+            "file": "exposure_horizons.bin",
+            "about": "Skyline for every non-null point, in the same row-by-row order. Each point has "
+                     "one 16-bit little-endian integer per direction: the terrain's elevation angle "
+                     "in hundredths of a degree, for azimuths 0, az_step_deg, 2 x az_step_deg, ...",
+            "az_step_deg": AZ_STEP, "directions": int(skylines.shape[1]), "points": len(todo),
+            "ref_site": REF_SITE, "earth_dist_m": EARTH_DIST,
+        },
         **grids,
     }
+    (OUT_DIR / "exposure_horizons.bin").write_bytes(skylines.tobytes())
     (OUT_DIR / "exposure_map.json").write_text(json.dumps(out))
-    print("wrote", OUT_DIR / "exposure_map.json")
+    print("wrote", OUT_DIR / "exposure_map.json", "and", OUT_DIR / "exposure_horizons.bin")
 
 
 if __name__ == "__main__":

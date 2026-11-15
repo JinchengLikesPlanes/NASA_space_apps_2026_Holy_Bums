@@ -254,12 +254,12 @@ function showPoint(k) {
   if (pinnedSite) {
     actions.append(Object.assign(document.createElement('a'), {
       href: `../?lat=${pinnedSite.lat}&lon=${pinnedSite.lon}`, textContent: `Open ${pinnedSite.name} in the dashboard` }));
-  } else if (canAnalyse) {
+  } else if (canAnalyse || map.horizons) {       // map.horizons: the dashboard can estimate it in the browser
     actions.append(Object.assign(document.createElement('a'), {
       href: `../?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`, textContent: 'Analyse this point in the dashboard' }));
   } else {
     actions.append(Object.assign(document.createElement('span'), { className: 'hint',
-      textContent: 'Analysing a new point in the dashboard needs the site started with pipeline/server.py.' }));
+      textContent: 'Analysing a new point in the dashboard needs a map made by the latest exposure_map.py, or the site started with pipeline/server.py.' }));
   }
   actions.append(release);
   $('readout').append(actions);
