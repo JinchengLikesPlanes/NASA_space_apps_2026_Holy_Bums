@@ -76,6 +76,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true 
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, 0.005, 50);
+camera.up.set(0, -1, 0);       // we look at the south pole, so south is "up" for the camera and its controls
 const controls = new OrbitControls(camera, canvas);
 // The camera orbits a point on the surface (the south pole to begin with), so you
 // can tilt down towards the horizon and see the relief, not only look straight down.
@@ -84,9 +85,19 @@ controls.target.copy(SOUTH_POLE);
 controls.enableDamping = true;
 controls.zoomToCursor = true;
 controls.minDistance = 0.04;
-controls.maxDistance = 5;
-controls.minPolarAngle = THREE.MathUtils.degToRad(97);    // angles are measured from north,
-controls.maxPolarAngle = THREE.MathUtils.degToRad(176);   // so these keep the camera below the pole
+controls.maxDistance = 4;
+controls.minPolarAngle = THREE.MathUtils.degToRad(4);     // tilt is measured from straight above the pole:
+controls.maxPolarAngle = THREE.MathUtils.degToRad(83);    // from almost straight down to almost level with the ground
+// Works like a map: drag moves the ground, right-drag (or Ctrl/Shift + drag) turns and tilts,
+// the wheel zooms towards the cursor. One finger moves, two fingers zoom and turn.
+controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+controls.screenSpacePanning = false;       // dragging slides along the ground, not up into space
+controls.keyPanSpeed = 30;
+controls.listenToKeyEvents(canvas);        // arrow keys move the view when the map has focus
+// In the helpers below a view is described from the Moon's north (+Y), so 180 degrees is straight down on the pole.
+const STRAIGHT_DOWN = THREE.MathUtils.degToRad(176), TILTED = THREE.MathUtils.degToRad(140);
+const HOME = { turn: THREE.MathUtils.degToRad(-60), distance: 0.42 };
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.9));
 const sunLight = new THREE.DirectionalLight(0xfff2dd, 2.2);
@@ -344,18 +355,72 @@ function notice(html) { const n = $('notice'); n.innerHTML = html; n.hidden = fa
 
 // ---------- camera ----------
 
-// Move the orbit centre to a spot and come in close, keeping the current viewing angle.
+// Height of the ground (in Moon radii) under a direction from the Moon's centre.
+function groundRadius(dir) {
+  if (!map) return 1;
+  const lat = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(dir.y / dir.length(), -1, 1)));
+  const lon = THREE.MathUtils.radToDeg(Math.atan2(-dir.z, dir.x));
+  const k = cellAt(Math.max(lat, -89.999), (lon + 360) % 360);
+  return k >= 0 ? cellRadius(k) : 1;
+}
+
+// The view always turns around a point on the ground (the "pivot"). After moving the view,
+// put the pivot back on the surface and keep it over the mapped area, so you cannot drift
+// off into space or under the terrain. The camera is shifted by the same amount.
+let pivotRadius = 1;
+function keepPivotOnGround() {
+  const t = controls.target, dir = t.clone().normalize();
+  const limit = map ? 1.25 * map.radius_km / map.moon_radius_km : 0.12;     // radians from the pole
+  const away = dir.angleTo(SOUTH_POLE);
+  if (away > limit) dir.copy(SOUTH_POLE.clone().lerp(dir, limit / away)).normalize();   // pull back to the edge
+  pivotRadius += (groundRadius(dir) - pivotRadius) * 0.2;                   // ease over height steps
+  const shift = dir.multiplyScalar(pivotRadius).sub(t);
+  t.add(shift);
+  camera.position.add(shift);
+}
+
+// Glide to a new view: where the pivot is and where the camera sits.
 let flight = null;
+function glide(target, cameraPos) {
+  controls.enableDamping = false;           // one update without damping drops any leftover drag motion,
+  controls.update();                        // so it cannot nudge the view after the glide ends
+  controls.enableDamping = true;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    controls.target.copy(target); camera.position.copy(cameraPos); return;
+  }
+  flight = { fromTarget: controls.target.clone(), fromCamera: camera.position.clone(), to: { target, camera: cameraPos }, start: performance.now() };
+}
+
+// Offset of the camera from the pivot for a tilt (angle from north), a turn and a distance.
+function viewOffset(tilt, turn, distance) {
+  return new THREE.Vector3().setFromSpherical(new THREE.Spherical(distance, tilt, turn));
+}
+function currentView() {
+  return new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+}
+
+// Move the pivot to a spot and come in close, keeping the current viewing angle.
 function flyTo(lat, lon) {
   const k = cellAt(Math.max(lat, -89.999), lon);
   const spot = unit(lat, lon).multiplyScalar(k >= 0 ? cellRadius(k) : 1);
   const offset = camera.position.clone().sub(controls.target);
   offset.setLength(Math.min(offset.length(), 0.12));
-  const to = { target: spot, camera: spot.clone().add(offset) };
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    controls.target.copy(to.target); camera.position.copy(to.camera); return;
-  }
-  flight = { fromTarget: controls.target.clone(), fromCamera: camera.position.clone(), to, start: performance.now() };
+  glide(spot, spot.clone().add(offset));
+}
+
+function resetView() {
+  const pole = SOUTH_POLE.clone().multiplyScalar(groundRadius(SOUTH_POLE));
+  glide(pole, pole.clone().add(viewOffset(TILTED, HOME.turn, HOME.distance)));
+}
+function zoomBy(factor) {
+  const v = currentView();
+  v.radius = THREE.MathUtils.clamp(v.radius * factor, controls.minDistance, controls.maxDistance);
+  glide(controls.target.clone(), controls.target.clone().add(new THREE.Vector3().setFromSpherical(v)));
+}
+function toggleTilt() {                     // switch between looking straight down and a tilted view
+  const v = currentView();
+  v.phi = v.phi > THREE.MathUtils.degToRad(165) ? TILTED : STRAIGHT_DOWN;
+  glide(controls.target.clone(), controls.target.clone().add(new THREE.Vector3().setFromSpherical(v)));
 }
 
 function stepFlight(now) {
@@ -435,6 +500,12 @@ function frame(now) {
   resize();
   stepFlight(now);
   controls.update();
+  if (!flight) keepPivotOnGround();
+  const down = currentView().phi > THREE.MathUtils.degToRad(165);
+  if ($('view-tilt').dataset.down !== String(down)) {
+    $('view-tilt').dataset.down = String(down);
+    $('view-tilt').textContent = down ? 'Tilt the view' : 'Look straight down';
+  }
   renderer.render(scene, camera);
   for (const t of tags) toScreen(t.pos, t.el);
   if (hover) toScreen(hover, $('cursor')); else $('cursor').hidden = true;
@@ -451,9 +522,16 @@ async function getJson(name) {
 
 async function start() {
   // start below the pole, tilted 40 degrees off straight-down, far enough to see the whole map
-  const tilt = THREE.MathUtils.degToRad(140), turn = THREE.MathUtils.degToRad(-60);
-  camera.position.copy(SOUTH_POLE).add(new THREE.Vector3(
-    Math.sin(tilt) * Math.cos(turn), Math.cos(tilt), Math.sin(tilt) * Math.sin(turn)).multiplyScalar(0.42));
+  camera.position.copy(SOUTH_POLE).add(viewOffset(TILTED, HOME.turn, HOME.distance));
+  $('view-reset').addEventListener('click', resetView);
+  $('view-in').addEventListener('click', () => zoomBy(0.6));
+  $('view-out').addEventListener('click', () => zoomBy(1 / 0.6));
+  $('view-tilt').addEventListener('click', toggleTilt);
+  canvas.addEventListener('keydown', ev => {      // with the map focused: + and - zoom, 0 or Home resets
+    if (ev.key === '+' || ev.key === '=') zoomBy(0.6);
+    else if (ev.key === '-' || ev.key === '_') zoomBy(1 / 0.6);
+    else if (ev.key === '0' || ev.key === 'Home') resetView();
+  });
   buildGraticule();
 
   try {

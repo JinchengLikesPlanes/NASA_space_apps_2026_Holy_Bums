@@ -80,6 +80,12 @@
   a { color: var(--ink); }
   a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
+  canvas#scene:focus-visible { outline: 2px solid var(--paper); outline-offset: -4px; }
+  .view { position: fixed; top: 16px; right: 16px; display: flex; gap: 6px; align-items: stretch; }
+  .view button { background: var(--paper); border-color: var(--paper); min-width: 36px; }
+  .view button:hover { background: #fff; color: var(--ink); }
+  .view button:focus-visible { outline: 2px solid #fff; }
+  .how { position: fixed; right: 16px; bottom: 14px; margin: 0; color: rgba(236, 231, 216, 0.75); font-size: 13px; pointer-events: none; text-align: right; }
   .tag {
     position: fixed; left: 0; top: 0; pointer-events: none; white-space: nowrap;
     transform: translate(-50%, -100%); padding: 1px 7px; margin-top: -9px;
@@ -105,13 +111,22 @@
   /* narrow screens: map on top, chart underneath, no overlap */
   @media (max-width: 720px) {
     canvas#scene { inset: 0 0 auto 0; height: 52vh; }
+    .view { top: 8px; right: 8px; }
+    .how { display: none; }
     .chart { top: 52vh; left: 0; right: 0; bottom: 0; width: auto; border-radius: 0; padding: 14px 16px; gap: 12px; }
     h1 { font-size: 21px; }
   }
 </style>
 </head>
 <body>
-<canvas id="scene" aria-label="3D view of the Moon's south pole. Use the list of sites and the point readout for the same information as text."></canvas>
+<canvas id="scene" tabindex="0" aria-label="3D view of the Moon's south pole. Use the list of sites and the point readout for the same information as text."></canvas>
+
+<div class="view" role="group" aria-label="Map view">
+  <button id="view-in" aria-label="Zoom in" title="Zoom in">+</button>
+  <button id="view-out" aria-label="Zoom out" title="Zoom out">−</button>
+  <button id="view-tilt">Look straight down</button>
+  <button id="view-reset">Reset view</button>
+</div>
 
 <aside class="chart">
   <header>
@@ -136,7 +151,7 @@
 
   <section id="point-section" aria-live="polite">
     <h2 id="point-title">Point under the cursor</h2>
-    <div id="readout"><p class="hint">Move over the coloured map to read a spot, click to keep it selected. Drag to rotate, scroll to zoom.</p></div>
+    <div id="readout"><p class="hint">Move over the coloured map to read a spot, click to keep it selected.</p></div>
   </section>
 
   <section>
@@ -158,6 +173,8 @@
   </header>
   <iframe id="analysis-frame" title="Analysis of the chosen point"></iframe>
 </dialog>
+
+<p class="how">Drag to move. Right-drag or Ctrl + drag to turn and tilt. Scroll to zoom.</p>
 
 <div id="tags"></div>
 <div class="cursor" id="cursor" hidden></div>
