@@ -322,7 +322,14 @@ async function addCustom(ev) {          // ask the local server to run the pipel
     setSite(row.id);
   } catch (err) {
     $("cStatus").textContent = err.message;
-  } finally { $("cGo").disabled = false; }
+    if (state.linked) {              // arrived from the 3D map: say clearly that this is not that point
+      const shown = (state.sites.find(s => s.id === state.id) || {}).name || "another site";
+      $("error").style.display = "block";
+      $("error").replaceChildren(
+        Object.assign(document.createElement("strong"), { textContent: `Could not analyse the point from the 3D map (${state.linked}).` }),
+        ` ${err.message} The charts below show ${shown} instead.`);
+    }
+  } finally { $("cGo").disabled = false; state.linked = null; }
 }
 
 function openLinkedPoint() {         // the 3D map links here with ?lat=..&lon=.. in the address
@@ -334,6 +341,7 @@ function openLinkedPoint() {         // the 3D map links here with ?lat=..&lon=.
   const known = state.sites.find(s => near(s.lat, lat) && near(s.lon, lon));
   if (known) return setSite(known.id);            // already analysed: just open it
   $("cLat").value = lat; $("cLon").value = lon; $("cName").value = q.get("name") || "";
+  state.linked = `latitude ${lat}, longitude ${lon}°E`;
   $("custom").requestSubmit();                    // same as pressing "Analyse this point"
 }
 

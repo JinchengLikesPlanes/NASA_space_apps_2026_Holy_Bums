@@ -246,19 +246,30 @@ function showPoint(k) {
     $('readout').append(Object.assign(document.createElement('p'), { className: 'hint', textContent: 'Click the map to keep a spot selected.' }));
     return;
   }
-  // The dashboard reads lat and lon from the address and runs its full analysis for that point.
-  const link = Object.assign(document.createElement('a'), {
-    href: `../?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`, textContent: 'Analyse this point in the dashboard' });
+  // The dashboard reads lat and lon from the address. A candidate site is already analysed
+  // and opens straight away; any other point needs pipeline/server.py to run the analysis.
   const release = Object.assign(document.createElement('button'), { textContent: 'Release' });
-  release.addEventListener('click', () => { pinned = null; hover = null; showPoint(k); });
+  release.addEventListener('click', () => { pinned = null; pinnedSite = null; hover = null; showPoint(k); });
   const actions = Object.assign(document.createElement('p'), { className: 'actions' });
-  actions.append(link, release);
+  if (pinnedSite) {
+    actions.append(Object.assign(document.createElement('a'), {
+      href: `../?lat=${pinnedSite.lat}&lon=${pinnedSite.lon}`, textContent: `Open ${pinnedSite.name} in the dashboard` }));
+  } else if (canAnalyse) {
+    actions.append(Object.assign(document.createElement('a'), {
+      href: `../?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`, textContent: 'Analyse this point in the dashboard' }));
+  } else {
+    actions.append(Object.assign(document.createElement('span'), { className: 'hint',
+      textContent: 'Analysing a new point in the dashboard needs the site started with pipeline/server.py.' }));
+  }
+  actions.append(release);
   $('readout').append(actions);
 }
 
 // Keep one grid cell selected: the readout and ring stay on it until released.
-function pin(k) {
+// site is given when the cell was chosen through a candidate site's button.
+function pin(k, site = null) {
   pinned = k;
+  pinnedSite = site;
   hover = new THREE.Vector3().fromBufferAttribute(cap.geometry.attributes.position, k);
   showPoint(k);
 }
@@ -285,7 +296,7 @@ function showSites(sites, zones, scores) {
     if (s.slope_deg != null) ground.push(`Slope at the site ${s.slope_deg}°`);
     if (zone[s.id]) ground.push(`${zone[s.id].zone_safe_pct}% of the ${zone[s.id].zone_radius_m / 1000} km landing zone under ${zone[s.id].slope_limit_deg}°`);
     if (ground.length) b.append(line(ground.join(', ')));
-    b.addEventListener('click', () => { flyTo(s.lat, s.lon); const k = cellAt(Math.max(s.lat, -89.999), s.lon); if (k >= 0) pin(k); });
+    b.addEventListener('click', () => { flyTo(s.lat, s.lon); const k = cellAt(Math.max(s.lat, -89.999), s.lon); if (k >= 0) pin(k, s); });
     const li = document.createElement('li');
     li.append(b);
     list.append(li);
@@ -333,6 +344,8 @@ function stepFlight(now) {
 
 const ray = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
+let canAnalyse = false;      // true when pipeline/server.py is serving the page
+let pinnedSite = null;
 let hover = null, pickQueued = false, pinned = null, pickToPin = false, downAt = null;
 
 function pick() {
@@ -425,6 +438,9 @@ async function start() {
     $('layer-section').hidden = true;
     $('point-section').hidden = true;
   }
+
+  // server.py answers /api/site with JSON even when no point is given; a plain file server does not
+  fetch('../api/site').then(r => { canAnalyse = (r.headers.get('content-type') || '').includes('json'); }).catch(() => {});
 
   buildGlobe(map ? map.radius_km - 2 * map.spacing_km : 0);
   if (map) {
