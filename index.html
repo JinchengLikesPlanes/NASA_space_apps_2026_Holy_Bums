@@ -200,17 +200,19 @@ const axis = extra => Object.assign({ fixedrange: true, gridcolor: css("--grid")
 function drawPanorama(d) {
   const i = state.i, e = d.eph, surface = css("--surface");
   const az = d.hor.azimuth_deg.concat([360]), hz = d.hor.horizon_deg.concat([d.hor.horizon_deg[0]]);
-  const lo = Math.min(...hz, ...e.sun_el, ...e.earth_el) - 0.5;
-  const hi = Math.max(...hz, ...e.sun_el, ...e.earth_el) + 1.6;
+  const top = Math.max(...hz, ...e.sun_el, ...e.earth_el);
+  const lo = Math.max(Math.min(...hz, ...e.sun_el, ...e.earth_el) - 0.5, -15);   // don't waste space far below ground
+  const hi = top + Math.max(1.6, 0.14 * (top - lo));                              // headroom for labels
   const next = n => Array.from({ length: Math.min(n, d.t.length - i) }, (_, k) => i + k);
   const path = (body, n, color) => ({ x: next(n).map(k => e[body + "_az"][k]), y: next(n).map(k => e[body + "_el"][k]),
     mode: "markers", marker: { size: 2.5, color, opacity: 0.55 }, hoverinfo: "skip" });
-  const body = (key, label, color, up, extra) => ({ x: [e[key + "_az"][i]], y: [e[key + "_el"][i]],
+  const body = (key, label, color, up, extra) => ({ x: [e[key + "_az"][i]], y: [Math.max(e[key + "_el"][i], lo + 0.06 * (hi - lo))],
+    customdata: [e[key + "_el"][i]],
     mode: "markers+text", text: [label + (up ? "" : " (hidden)")], cliponaxis: false,
     textposition: e[key + "_az"][i] < 30 ? "top right" : e[key + "_az"][i] > 330 ? "top left" : "top center",
     textfont: { color: css("--text"), size: 13 },
     marker: { size: 16, color: up ? color : surface, line: { color: up ? surface : color, width: up ? 2 : 2.5 } },
-    hovertemplate: `${label}<br>direction %{x:.1f}°<br>elevation %{y:.2f}°${extra}<extra></extra>` });
+    hovertemplate: `${label}<br>direction %{x:.1f}°<br>elevation %{customdata:.2f}°${extra}<extra></extra>` });
   const data = [
     path("sun", 708, css("--sun")), path("earth", 655, css("--earth")),
     { x: [0, 360], y: [lo, lo], mode: "lines", line: { width: 0 }, hoverinfo: "skip" },
