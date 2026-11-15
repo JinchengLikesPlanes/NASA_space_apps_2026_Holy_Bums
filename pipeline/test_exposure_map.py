@@ -35,6 +35,12 @@ def main():
     assert abs(lat + 89) < 1e-9 and abs(lon) < 1e-9
     lat, lon = grid_lat_lon(1000.0, 0.0)                                 # +x is longitude 90 east
     assert abs(lon - 90) < 1e-9
+    # smooth-Moon values used for the whole-Moon map: known answers away from the poles
+    from global_map import smooth_exposure
+    near, far = smooth_exposure(sky, 0.0, 0.0), smooth_exposure(sky, 0.0, 180.0)
+    assert near["earth_pct"] == 100 and far["earth_pct"] == 0          # Earth never sets / never rises
+    assert 45 < near["sun_pct"] < 55 and 45 < far["sun_pct"] < 55         # day and night are about equal
+    assert 340 < near["longest_dark_h"] < 370                           # a night is about 14.8 Earth days
     print("all exposure checks passed")
 
 
