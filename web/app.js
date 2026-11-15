@@ -4,7 +4,7 @@
 // and ../data/summary.json (from pipeline/compute_visibility.py), the candidate sites.
 import * as THREE from 'three';
 
-const BUILD = '2026-11-15f';       // shown at the bottom of the panel, to tell which copy of this file is running
+const BUILD = '2026-11-15g';       // shown at the bottom of the panel, to tell which copy of this file is running
 const DATA = '../data/';
 const HOURS_CAP = 720;            // "longest night" colours stop at 30 days
 
