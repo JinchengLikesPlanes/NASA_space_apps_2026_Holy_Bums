@@ -11,13 +11,23 @@ sunlight and a clear view of Earth.
 
 ## Run the website
 
-There are two pages:
+There are three pages:
 
-- **Site dashboard** (`index.html`): pick a site and a date, see the skyline,
-  the Sun and Earth, power, and a comparison table. Can analyse a typed-in point.
+- **Start page** (`index.html`): a short explanation of the project, with a button
+  that launches the 3D map.
+- **Site dashboard** (`dashboard.html`): pick a site and a date, see the skyline,
+  the Sun and Earth, power, and a comparison table with a score and a recommended
+  site. The table also shows each site at the chosen date and time, and adds
+  Apollo 11, Apollo 15 and IM-2 (Mons Mouton) as quick
+  estimates for comparison. Can analyse a typed-in point.
 - **3D map** (`web/`): the south polar terrain coloured by sunlight, Earth
   visibility or longest night, for every point on a grid. "Whole Moon" shows the
   rest of the Moon too, from a much coarser whole-Moon elevation grid.
+  The six Apollo landing sites and the IM-2 landing site are marked for comparison.
+
+The pages need no server of their own: all the data they read is in `data/`, so
+they also work from GitHub Pages (repo Settings, Pages, deploy from the `main`
+branch, folder `/ (root)`).
 
 The elevation grids are too large for GitHub, so download them once (111 MB,
 saved in a folder named `lola` next to the repo folder):
@@ -32,11 +42,11 @@ Add `--fine` to also get the 20 m grid (1.8 GB) for sharper skylines. Then:
 python pipeline/server.py
 ```
 
-Then open http://localhost:8000 for the dashboard and http://localhost:8000/web/
-for the 3D map.
+Then open http://localhost:8000 for the start page, which links to the 3D map
+(http://localhost:8000/web/) and the dashboard (http://localhost:8000/dashboard.html).
 
-Without the LOLA grids, `python -m http.server 8000` in the repo folder serves both
-pages. Points on the 3D map still open in the dashboard as a quick estimate worked
+Without the LOLA grids, `python -m http.server 8000` in the repo folder serves all
+three pages. Points on the 3D map still open in the dashboard as a quick estimate worked
 out in the browser (`web/estimate.js`); only the detailed analysis of a typed-in
 coordinate needs `server.py`.
 
@@ -84,5 +94,9 @@ Kit) as `web/assets/moon.jpg` to give the globe a photo surface.
 
 `refine_sites.py` suggests better coordinates for the sites (highest ground nearby).
 `test_exposure_map.py` and `test_slope_map.py` check the maths and need no LOLA files.
+They are plain scripts, not pytest tests: run them with `python test_exposure_map.py`.
+
+Known limit: Earth is counted as visible when its centre is above the skyline.
+Its disc is about 2° wide from the Moon, so link times near the horizon are approximate.
 
 Needs Python with `numpy` and `requests` (and `matplotlib` for the slope pictures).

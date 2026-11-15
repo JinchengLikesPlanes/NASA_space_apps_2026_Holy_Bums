@@ -3,7 +3,7 @@
 Usage:  python server.py [COARSE.LBL] [FINE.LBL] [--port 8000]
         With no grid paths it looks for LDEM_75S_120M.LBL and LDEM_80S_20M.LBL in a
         folder named "lola" next to the repo folder.
-Then open http://localhost:8000
+Then open http://localhost:8000 (the start page), which links to the 3D map and the site dashboard.
 
 It serves the site like "python -m http.server", plus one extra address the page calls:
     /api/site?lat=-88.2&lon=45&name=My+site

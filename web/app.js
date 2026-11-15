@@ -4,7 +4,7 @@
 // and ../data/summary.json (from pipeline/compute_visibility.py), the candidate sites.
 import * as THREE from 'three';
 
-const BUILD = '2026-11-15d';       // shown at the bottom of the panel, to tell which copy of this file is running
+const BUILD = '2026-11-15i';       // shown at the bottom of the panel, to tell which copy of this file is running
 const DATA = '../data/';
 const HOURS_CAP = 720;            // "longest night" colours stop at 30 days
 
@@ -35,6 +35,18 @@ const LAYERS = {
     bestLabel: 'Shortest longest-night on the map',
   },
 };
+
+// Where the six Apollo crews and the IM-2 robotic lander set down, for comparison with the
+// candidate sites. East longitude positive. Positions are from Lunar Reconnaissance Orbiter images.
+const APOLLO = [
+  { name: 'Apollo 11', where: 'Sea of Tranquility', when: 'July 1969', lat: 0.674, lon: 23.473 },
+  { name: 'Apollo 12', where: 'Ocean of Storms', when: 'November 1969', lat: -3.012, lon: -23.422 },
+  { name: 'Apollo 14', where: 'Fra Mauro', when: 'February 1971', lat: -3.645, lon: -17.471, below: true },
+  { name: 'Apollo 15', where: 'Hadley Rille', when: 'July 1971', lat: 26.132, lon: 3.634 },
+  { name: 'Apollo 16', where: 'Descartes Highlands', when: 'April 1972', lat: -8.973, lon: 15.500, below: true },
+  { name: 'Apollo 17', where: 'Taurus-Littrow valley', when: 'December 1972', lat: 20.191, lon: 30.772 },
+  { name: 'IM-2 Athena', where: 'Mons Mouton', when: 'March 2025', lat: -84.7906, lon: 29.1957 },
+];
 
 const days = h => (h >= 48 ? `${(h / 24).toFixed(1)} days` : `${h} hours`);
 const $ = id => document.getElementById(id);
@@ -201,10 +213,14 @@ function shadeGlobe() {
   const dy = moonM * Math.PI / H;                                                         // metres between rows
   for (let j = 0; j < H; j++) {
     const lat = -90 + (j + 0.5) * 180 / H;
-    const dx = moonM * Math.max(Math.cos(lat * Math.PI / 180), 0.05) * 2 * Math.PI / W;   // metres between columns
+    const cosLat = Math.max(Math.cos(lat * Math.PI / 180), 0.01);
+    const dx = moonM * cosLat * 2 * Math.PI / W;                                          // metres between columns
+    // Near the poles the columns crowd together. Measure the east-west slope across enough of
+    // them to span about the same ground as one row, or the shading turns into streaks.
+    const span = Math.min(Math.max(Math.round(1 / cosLat), 1), W / 8);
     const up = Math.min(j + 1, H - 1) * W, down = Math.max(j - 1, 0) * W, row = j * W;
     for (let i = 0; i < W; i++) {
-      const zx = (h[row + (i + 1) % W] - h[row + (i + W - 1) % W]) / (2 * dx) * z;        // slope towards the east
+      const zx = (h[row + (i + span) % W] - h[row + (i + W - span) % W]) / (2 * span * dx) * z;   // slope towards the east
       const zy = (h[up + i] - h[down + i]) / (2 * dy) * z;                                // slope towards the north
       const facing = (0.5 * zx - 0.5 * zy + 0.7071) / (Math.sqrt(zx * zx + zy * zy + 1) * 0.7071);
       const light = 0.3 + 0.7 * Math.min(Math.max(facing, 0), 1.55);                      // 1 on flat ground
@@ -361,12 +377,14 @@ function cellAt(lat, lon) {
 }
 
 // A link that opens the dashboard for a point in a pop-up panel over the map.
-function analyseLink(lat, lon, text, title) {
-  const a = Object.assign(document.createElement('a'), { href: `../?lat=${lat}&lon=${lon}`, textContent: text });
+// name, if given, is what the dashboard calls the point.
+function analyseLink(lat, lon, text, title, name = '') {
+  const query = `lat=${lat}&lon=${lon}` + (name ? `&name=${encodeURIComponent(name)}` : '');
+  const a = Object.assign(document.createElement('a'), { href: `../dashboard.html?${query}`, textContent: text });
   a.addEventListener('click', ev => {             // ctrl/middle click still opens the full page in a new tab
     if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
     ev.preventDefault();
-    openAnalysis(lat, lon, title);
+    openAnalysis(lat, lon, title, name);
   });
   return a;
 }
@@ -409,31 +427,35 @@ function showPoint(k) {
 }
 
 // A point anywhere else on the Moon, from the whole-Moon values (coarse terrain, or a smooth ball).
-function showGlobePoint(lat, lon) {
+// name is set for a named place, such as an Apollo landing site.
+function showGlobePoint(lat, lon, name = '') {
   const c = worldCell(lat, lon), east = (lon + 360) % 360;
-  const link = (map && map.horizons) ? analyseLink(lat.toFixed(2), east.toFixed(2), 'Analyse this point', place(lat, east)) : null;
-  showReadout(place(lat, east), [
+  const link = !(map && map.horizons) ? null : name
+    ? analyseLink(lat.toFixed(3), east.toFixed(3), `Analyse the ${name}`, name, name)
+    : analyseLink(lat.toFixed(2), east.toFixed(2), 'Analyse this point', place(lat, east));
+  showReadout(name ? `${name}, ${place(lat, east)}` : place(lat, east), [
     ['Sunlight', `${world.sun_pct[c].toFixed(1)}% of the year`],
     ['Earth in view', `${world.earth_pct[c].toFixed(1)}% of the year`],
     ['Longest night', days(world.longest_dark_h[c])],
     world.terrain ? ['Height', `${world.height_m[c].toLocaleString('en')} m`] : ['Terrain', 'ignored (smooth Moon)'],
-  ], pinnedGlobe !== null, link, () => showGlobePoint(lat, lon));
+  ], pinnedGlobe !== null, link, () => showGlobePoint(lat, lon));      // released, it becomes an ordinary point
 }
 
 // Show the dashboard for one coordinate in a panel over the map. The dashboard page is loaded
 // once and then asked for each new point, so later points appear without a page load.
-function openAnalysis(lat, lon, title) {
+function openAnalysis(lat, lon, title, name = '') {
   const dialog = $('analysis'), frame = $('analysis-frame');
   $('analysis-title').textContent = title;
-  $('analysis-full').href = `../?lat=${lat}&lon=${lon}`;
+  const query = `lat=${lat}&lon=${lon}` + (name ? `&name=${encodeURIComponent(name)}` : '');
+  $('analysis-full').href = `../dashboard.html?${query}`;
   if (!dialog.open) dialog.showModal();
   const inside = frame.contentWindow;
   if (frame.dataset.loaded && inside && typeof inside.openPoint === 'function') {
-    inside.openPoint(Number(lat), Number(lon));
+    inside.openPoint(Number(lat), Number(lon), name);
     inside.scrollTo(0, 0);
   } else {
     frame.addEventListener('load', () => { frame.dataset.loaded = '1'; }, { once: true });
-    frame.src = `../?lat=${lat}&lon=${lon}&embed=1`;
+    frame.src = `../dashboard.html?${query}&embed=1`;
   }
 }
 $('analysis-close').addEventListener('click', () => $('analysis').close());
@@ -450,12 +472,38 @@ function pin(k, site = null) {
 }
 
 // The same for a point outside the polar map. point is where the cursor ring sits.
-function pinGlobe(lat, lon, point) {
+function pinGlobe(lat, lon, point, name = '') {
   pinned = null;
   pinnedSite = null;
   pinnedGlobe = { lat, lon };
   hover = point.clone();
-  showGlobePoint(lat, lon);
+  showGlobePoint(lat, lon, name);
+}
+
+// The Apollo landing sites: a label on the globe and a row in the panel for each.
+function showApollo() {
+  const list = $('apollo');
+  for (const a of APOLLO) {
+    const b = document.createElement('button');
+    b.append(Object.assign(document.createElement('span'), { className: 'name', textContent: a.name }),
+      Object.assign(document.createElement('span'), { className: 'nums', textContent: `${a.where}, ${a.when}` }));
+    if (world) {
+      const c = worldCell(a.lat, a.lon);
+      b.append(Object.assign(document.createElement('span'), { className: 'nums',
+        textContent: `Sun ${world.sun_pct[c]}%, Earth ${world.earth_pct[c]}%, longest night ${days(world.longest_dark_h[c])}` }));
+    }
+    b.addEventListener('click', () => {
+      flyTo(a.lat, a.lon, 0.7);                   // the whole-Moon terrain is coarse, so stay further out
+      if (world) pinGlobe(a.lat, a.lon, unit(a.lat, a.lon), `${a.name} landing site`);
+    });
+    const li = document.createElement('li');
+    li.append(b);
+    list.append(li);
+    const el = Object.assign(document.createElement('div'), { className: 'tag apollo' + (a.below ? ' below' : ''), textContent: a.name });
+    $('tags').append(el);
+    tags.push({ el, lat: a.lat, lon: a.lon, pos: unit(a.lat, a.lon), apollo: true });
+  }
+  $('apollo-show').addEventListener('change', ev => { for (const t of tags) if (t.apollo) t.off = !ev.target.checked; });
 }
 
 // sites: rows of summary.json. zones: slope_summary.json rows or null. scores: scores.json or null.
@@ -585,8 +633,8 @@ function frameAt(lat, lon) {
   return new THREE.Quaternion().setFromUnitVectors(up, unit(lat, lon)).multiply(view.frame);
 }
 
-function flyTo(lat, lon) {                    // bring a spot to the middle and come in close
-  glide({ frame: frameAt(lat, lon), distance: Math.min(view.distance, 0.12), tilt: view.tilt || TILTED });
+function flyTo(lat, lon, distance = 0.12) {   // bring a spot to the middle and come in close
+  glide({ frame: frameAt(lat, lon), distance, tilt: view.tilt || TILTED });
 }
 function resetView() {                        // back to the south polar map
   glide({ frame: HOME_FRAME.clone(), distance: 0.42, tilt: TILTED });
@@ -744,7 +792,7 @@ function frame(now) {
     $('view-tilt').textContent = down ? 'Tilt the view' : 'Look straight down';
   }
   renderer.render(scene, camera);
-  for (const t of tags) toScreen(t.pos, t.el);
+  for (const t of tags) { if (t.off) t.el.hidden = true; else toScreen(t.pos, t.el); }
   if (hover) toScreen(hover, $('cursor')); else $('cursor').hidden = true;
   requestAnimationFrame(frame);
 }
@@ -808,6 +856,7 @@ async function start() {
     const [sites, zones, scores] = await Promise.all([getJson('summary.json'), optional('slope_summary.json'), optional('scores.json')]);
     showSites(sites, zones, scores);
   } catch { /* sites are optional */ }
+  showApollo();
 
   for (const input of document.querySelectorAll('input[name=layer]')) {
     input.addEventListener('change', () => { layer = input.value; if (cap) paintCap(); paintGlobe(); showLegend(); });

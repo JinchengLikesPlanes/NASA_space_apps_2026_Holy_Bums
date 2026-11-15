@@ -96,6 +96,14 @@
     background: var(--paper); color: var(--ink); border-radius: 2px; font-size: 13px; font-weight: 600;
   }
   .tag::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 9px; background: var(--paper); }
+  /* Apollo landing sites: dark labels, to tell them from the candidate sites */
+  .tag.apollo { background: var(--ink); color: var(--paper); box-shadow: 0 0 0 1px var(--paper); font-weight: 400; }
+  .tag.apollo::after { background: var(--paper); }
+  .tag.below { transform: translate(-50%, 0); margin-top: 9px; }      /* label under its spot, where two sites are close */
+  .tag.below::after { top: auto; bottom: 100%; }
+  #apollo-note { font-size: 13px; margin-bottom: 8px; }
+  .check { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer; }
+  .check input { accent-color: var(--ink); margin: 0; }
   .cursor {
     position: fixed; left: 0; top: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px;
     border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px var(--ink); pointer-events: none;
@@ -167,7 +175,14 @@
     <ul class="sites" id="sites"></ul>
   </section>
 
-  <p><a href="../">Open the site dashboard</a> for one site's skyline, timeline and power.</p>
+  <section>
+    <h2>Past landing sites</h2>
+    <p class="hint" id="apollo-note">Where the six Apollo crews landed between 1969 and 1972, and the IM-2 robotic lander of 2025, to compare with the south pole. The Apollo sites are near the equator and out of sight at first: choose one below, or "Whole Moon", to see them.</p>
+    <label class="check"><input type="checkbox" id="apollo-show" checked> Show them on the map</label>
+    <ul class="sites" id="apollo"></ul>
+  </section>
+
+  <p><a href="../dashboard.html">Open the site dashboard</a> for one site's skyline, timeline and power, or read <a href="../">what this project is</a>.</p>
 
   <p class="source" id="build"></p>
 
@@ -177,7 +192,7 @@
 <dialog id="analysis" aria-labelledby="analysis-title">
   <header>
     <h2 id="analysis-title">Analysis</h2>
-    <a id="analysis-full" href="../">Open as a full page</a>
+    <a id="analysis-full" href="../dashboard.html">Open as a full page</a>
     <button id="analysis-close">Back to the map</button>
   </header>
   <iframe id="analysis-frame" title="Analysis of the chosen point"></iframe>
@@ -200,6 +215,6 @@
 </script>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 <!-- change the ?v= value whenever app.js changes, so browsers do not keep running an old copy -->
-<script type="module" src="./app.js?v=20261115d"></script>
+<script type="module" src="./app.js?v=20261115i"></script>
 </body>
 </html>
